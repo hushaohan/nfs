@@ -273,9 +273,11 @@ class Track {
       post.castShadow = true;
       this.group.add(post);
     }
-    const beam = new THREE.Mesh(new THREE.BoxGeometry(this.width + 5, 1.2, 0.6), gMat);
+    const beam = new THREE.Mesh(new THREE.BoxGeometry(this.width + 4, 1.2, 0.6), gMat);
     beam.position.set(s.pos.x, 6.6, s.pos.z);
-    beam.rotation.y = Math.atan2(s.nx, s.nz);
+    // span ACROSS the road: align the beam's long (local X) axis with the
+    // track normal, i.e. orthogonal to the driving direction
+    beam.rotation.y = Math.atan2(-s.nz, s.nx);
     beam.castShadow = true;
     this.group.add(beam);
   }

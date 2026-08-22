@@ -594,10 +594,11 @@ class Game {
       const k = 1 - Math.exp(-dt * 3);
       this.camera.position.lerp(desired, k);
     } else {
-      // chase cam (tight, NFS-style)
-      const dist = 4.2 + Math.abs(car.vx) * 0.012;
-      desired = new THREE.Vector3(car.x - c * dist, 1.75 + Math.abs(car.vx) * 0.005, car.z - s * dist);
-      look = new THREE.Vector3(car.x + c * 6, 1.2, car.z + s * 6);
+      // chase cam — close and high: steeper look-down shows the road
+      // shape ahead; pulls back slightly with speed
+      const dist = 3.6 + Math.abs(car.vx) * 0.010;
+      desired = new THREE.Vector3(car.x - c * dist, 2.40 + Math.abs(car.vx) * 0.0075, car.z - s * dist);
+      look = new THREE.Vector3(car.x + c * 8, 1.0, car.z + s * 8);
       const k = 1 - Math.exp(-dt * 6.5);
       this.camera.position.lerp(desired, k);
     }
