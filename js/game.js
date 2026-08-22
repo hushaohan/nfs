@@ -239,7 +239,7 @@ class Game {
   }
 
   _showScreen(id) {
-    for (const s of ["menu-main", "menu-car", "menu-controls", "menu-pause", "menu-results"]) {
+    for (const s of ["menu-main", "menu-car", "menu-track", "menu-controls", "menu-pause", "menu-results"]) {
       document.getElementById(s).classList.toggle("hidden", s !== id);
     }
   }
