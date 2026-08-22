@@ -79,6 +79,33 @@ h2 { font-size: 34px; letter-spacing: 4px; margin-bottom: 28px; font-style: ital
 
 /* Car select */
 #car-grid { display: flex; gap: 16px; justify-content: center; flex-wrap: wrap; margin-bottom: 10px; }
+
+/* car preview turntable */
+#car-preview {
+  display: block;
+  width: min(560px, 88%);
+  aspect-ratio: 16 / 9;
+  margin: 6px auto 14px;
+  border-radius: 10px;
+  background: rgba(8, 10, 18, 0.65);
+  border: 1px solid rgba(255,255,255,0.10);
+}
+
+/* ---- track select: world visible behind a light veil, cards across ---- */
+#menu-track {
+  background: linear-gradient(180deg, rgba(3,5,9,0.78) 0%, rgba(3,5,9,0.22) 34%, rgba(3,5,9,0.20) 62%, rgba(3,5,9,0.66) 100%);
+  backdrop-filter: none;
+  align-items: stretch;
+}
+#menu-track .menu-inner {
+  max-width: 1220px;
+  display: flex; flex-direction: column; justify-content: space-between;
+  padding: 30px 0 24px;
+}
+#menu-track h2 { text-shadow: 0 2px 14px rgba(0,0,0,0.85); }
+#track-grid { display: flex; gap: 14px; justify-content: center; align-items: stretch; flex-wrap: wrap; margin-bottom: 8px; }
+#track-grid .car-card { width: 208px; padding: 15px; }
+#menu-track .menu-buttons { margin-top: 4px; }
 .car-card {
   width: 240px; padding: 18px;
   background: var(--panel);

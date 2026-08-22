@@ -330,6 +330,86 @@ function _mirrorPair(g, paintMat, darkMat, x, y, z) {
   }
 }
 
+/* ---------- car select turntable preview ----------
+ * Standalone mini-renderer on its own canvas: studio lighting, a dark
+ * pedestal disc with an accent ring tinted by the car color, slow
+ * rotation. Runs its own rAF loop only while visible.               */
+class CarPreview {
+  constructor(canvas) {
+    this.canvas = canvas;
+    this.renderer = new THREE.WebGLRenderer({ canvas, antialias: true, alpha: true });
+    this.renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
+    this.scene = new THREE.Scene();
+    this.camera = new THREE.PerspectiveCamera(36, 16 / 9, 0.1, 60);
+    this.camera.position.set(4.9, 2.0, 5.4);
+    this.camera.lookAt(0, 0.55, 0);
+
+    this.scene.add(new THREE.HemisphereLight(0x9fb4e8, 0x14161c, 0.95));
+    const key = new THREE.DirectionalLight(0xffffff, 1.7);
+    key.position.set(4, 7, 3);
+    this.scene.add(key);
+    const rim = new THREE.DirectionalLight(0x66aaff, 1.0);
+    rim.position.set(-5, 3, -4);
+    this.scene.add(rim);
+
+    const disc = new THREE.Mesh(
+      new THREE.CylinderGeometry(2.7, 2.85, 0.16, 48),
+      new THREE.MeshStandardMaterial({ color: 0x10131b, roughness: 0.35, metalness: 0.6 })
+    );
+    disc.position.y = -0.08;
+    this.scene.add(disc);
+    this.ringMat = new THREE.MeshBasicMaterial({ color: 0xff3b30 });
+    const ring = new THREE.Mesh(new THREE.TorusGeometry(2.66, 0.03, 8, 64), this.ringMat);
+    ring.rotation.x = Math.PI / 2;
+    ring.position.y = 0.01;
+    this.scene.add(ring);
+
+    this.car = null;
+    this.angle = 0.65;
+    this.running = false;
+    this._loop = this._tick.bind(this);
+  }
+
+  setSpec(spec) {
+    if (this.car) {
+      this.car.traverse((o) => {
+        if (o.isMesh) {
+          o.geometry.dispose();
+          if (Array.isArray(o.material)) o.material.forEach((m) => m.dispose());
+          else o.material.dispose();
+        }
+      });
+      this.scene.remove(this.car);
+    }
+    this.car = buildCarMesh(spec);
+    this.scene.add(this.car);
+    this.ringMat.color.setHex(spec.color);
+  }
+
+  show() {
+    if (this.running) return;
+    this.running = true;
+    requestAnimationFrame(this._loop);
+  }
+
+  hide() { this.running = false; }
+
+  _tick() {
+    if (!this.running) return;
+    requestAnimationFrame(this._loop);
+    // keep the drawing buffer matched to the CSS size
+    const w = this.canvas.clientWidth || 640, h = this.canvas.clientHeight || 360;
+    if (this.canvas.width !== Math.round(w * this.renderer.getPixelRatio()) ) {
+      this.renderer.setSize(w, h, false);
+      this.camera.aspect = w / h;
+      this.camera.updateProjectionMatrix();
+    }
+    this.angle += 0.008;
+    if (this.car) this.car.rotation.y = this.angle;
+    this.renderer.render(this.scene, this.camera);
+  }
+}
+
 /* ---------- pooled particle system ---------- */
 class ParticleSystem {
   constructor(scene, max = 900) {

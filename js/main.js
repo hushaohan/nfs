@@ -7,6 +7,22 @@ const game = new Game();
 
 function $(id) { return document.getElementById(id); }
 
+let carPreview = null;
+
+function ensureCarPreview() {
+  if (!carPreview) {
+    const cv = $("car-preview");
+    if (!cv) return null;
+    try { carPreview = new CarPreview(cv); } catch (_) { return null; }
+  }
+  return carPreview;
+}
+
+function updateCarPreview() {
+  const cp = ensureCarPreview();
+  if (cp) cp.setSpec(CAR_SPECS[game.selectedCar]);
+}
+
 function buildCarSelect() {
   const grid = $("car-grid");
   grid.innerHTML = "";
@@ -31,6 +47,7 @@ function buildCarSelect() {
       game.audio.click();
       buildCarSelect();
       updateMenuFooter();
+      updateCarPreview();
     });
     grid.appendChild(card);
   }
@@ -74,10 +91,17 @@ function buildTrackSelect() {
 
 function wireButtons() {
   $("btn-start").addEventListener("click", () => { game.audio.init(); game.audio.click(); game.startRace(); });
-  $("btn-car").addEventListener("click", () => { game.audio.init(); game.audio.click(); buildCarSelect(); game._showScreen("menu-car"); });
+  $("btn-car").addEventListener("click", () => {
+    game.audio.init(); game.audio.click();
+    buildCarSelect();
+    game._showScreen("menu-car");
+    updateCarPreview();
+    const cp = ensureCarPreview();
+    if (cp) cp.show();
+  });
+  $("btn-car-back").addEventListener("click", () => { game.audio.click(); if (carPreview) carPreview.hide(); game._showScreen("menu-main"); });
+  $("btn-car-confirm").addEventListener("click", () => { game.audio.click(); if (carPreview) carPreview.hide(); game._showScreen("menu-main"); });
   $("btn-controls").addEventListener("click", () => { game.audio.init(); game.audio.click(); game._showScreen("menu-controls"); });
-  $("btn-car-back").addEventListener("click", () => { game.audio.click(); game._showScreen("menu-main"); });
-  $("btn-car-confirm").addEventListener("click", () => { game.audio.click(); game._showScreen("menu-main"); });
 
   $("btn-track").addEventListener("click", () => { game.audio.init(); game.audio.click(); buildTrackSelect(); game._showScreen("menu-track"); });
   $("btn-track-back").addEventListener("click", () => { game.audio.click(); game._showScreen("menu-main"); });
