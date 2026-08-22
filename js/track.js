@@ -21,7 +21,7 @@ class Track {
     this._buildControlPoints(opts.points);
     this._sampleSpline();
     this._buildRoad();
-    this._buildSkirts();
+    this._buildTerrain();
     this._buildBarriers();
     this._buildStartLine();
     this._buildScenery();
@@ -174,53 +174,124 @@ class Track {
     const road = new THREE.Mesh(geo, mat);
     road.receiveShadow = true;
     this.group.add(road);
-
-    // ground plane
-    const groundGeo = new THREE.PlaneGeometry(2400, 2400);
-    const groundMat = new THREE.MeshStandardMaterial({ color: 0x1c2a1e, roughness: 1 });
-    const ground = new THREE.Mesh(groundGeo, groundMat);
-    ground.rotation.x = -Math.PI / 2;
-    ground.position.set(60, -0.05, 300);
-    ground.receiveShadow = true;
-    this.group.add(ground);
   }
 
   /* ---------- embankment skirts: drop the road edges to the ground so
    * hilly sections look like solid earthworks instead of floating ribbons */
-  _buildSkirts() {
+  /* ---------- rolling terrain that hugs the road ----------
+   * A heightfield over the track bounds. Near the road it matches the
+   * road elevation exactly (the landscape rises into the roadbed); with
+   * distance it falls off into procedural grass hills. This replaces
+   * the old flat ground plane so hilly tracks look like real hills.   */
+  _buildTerrain() {
     const N = this.samples.length;
-    const step = 4;
+
+    // bounds + margin
+    let minX = Infinity, maxX = -Infinity, minZ = Infinity, maxZ = -Infinity;
+    for (const s of this.samples) {
+      minX = Math.min(minX, s.pos.x); maxX = Math.max(maxX, s.pos.x);
+      minZ = Math.min(minZ, s.pos.z); maxZ = Math.max(maxZ, s.pos.z);
+    }
+    const M = 150;
+    minX -= M; minZ -= M; maxX += M; maxZ += M;
+    const sx = maxX - minX, sz = maxZ - minZ;
+
+    // spatial hash of samples for fast nearest-road queries
+    const CS = 30;
+    const buckets = new Map();
+    this.samples.forEach((s, i) => {
+      const k = Math.floor(s.pos.x / CS) + "_" + Math.floor(s.pos.z / CS);
+      if (!buckets.has(k)) buckets.set(k, []);
+      buckets.get(k).push(i);
+    });
+    const nearest = (x, z) => {
+      const bx = Math.floor(x / CS), bz = Math.floor(z / CS);
+      let best = -1, bd = Infinity;
+      for (let ox = -2; ox <= 2; ox++) for (let oz = -2; oz <= 2; oz++) {
+        const arr = buckets.get((bx + ox) + "_" + (bz + oz));
+        if (!arr) continue;
+        for (const i of arr) {
+          const s = this.samples[i];
+          const dx = s.pos.x - x, dz = s.pos.z - z;
+          const d = dx * dx + dz * dz;
+          if (d < bd) { bd = d; best = i; }
+        }
+      }
+      if (best < 0) {  // far outside coverage: coarse scan
+        for (let i = 0; i < N; i += 4) {
+          const s = this.samples[i];
+          const dx = s.pos.x - x, dz = s.pos.z - z;
+          const d = dx * dx + dz * dz;
+          if (d < bd) { bd = d; best = i; }
+        }
+      }
+      return { d: Math.sqrt(bd), y: this.samples[best].pos.y };
+    };
+
+    // blend: road height near the road → procedural hills far away
+    const inner = this.barrierDist + 5;
+    const outer = inner + 62;
+    const height = (x, z) => {
+      const { d, y } = nearest(x, z);
+      const road = y - 0.06;                       // tuck under the ribbon
+      if (d <= inner) return road;
+      // fade procedural hills toward the field border so no cliff shows
+      const ex = Math.min(x - minX, maxX - x) / 120;
+      const ez = Math.min(z - minZ, maxZ - z) / 120;
+      const ef = 0.06 + 0.94 * Math.min(1, Math.max(0, Math.min(ex, ez)) * Math.min(1, Math.min(ex, ez)) * (3 - 2 * Math.min(1, Math.min(ex, ez))));
+      const hills = Math.max(0.35, this._hillNoise(x, z)) * ef;
+      if (d >= outer) return hills;
+      const t = (d - inner) / (outer - inner);
+      const sBlend = t * t * (3 - 2 * t);          // smoothstep
+      return road * (1 - sBlend) + hills * sBlend;
+    };
+    this._terrainHeight = height;
+
+    // grid mesh
+    const cell = 3.4;
+    const nx = Math.max(8, Math.min(250, Math.round(sx / cell)));
+    const nz = Math.max(8, Math.min(250, Math.round(sz / cell)));
     const positions = [];
     const indices = [];
-    const hw = this.halfW + 0.4;
-    let vi = 0;
-    for (let i = 0; i < N; i += step) {
-      const s = this.samples[i];
-      // top pair at road edge height, bottom pair just under the ground
-      positions.push(s.pos.x + s.nx * hw, s.pos.y + 0.02, s.pos.z + s.nz * hw);
-      positions.push(s.pos.x - s.nx * hw, s.pos.y + 0.02, s.pos.z - s.nz * hw);
-      positions.push(s.pos.x + s.nx * hw, -0.25, s.pos.z + s.nz * hw);
-      positions.push(s.pos.x - s.nx * hw, -0.25, s.pos.z - s.nz * hw);
-      vi += 4;
+    for (let r = 0; r <= nz; r++) {
+      for (let c = 0; c <= nx; c++) {
+        const x = minX + sx * c / nx;
+        const z = minZ + sz * r / nz;
+        positions.push(x, height(x, z), z);
+      }
     }
-    // stitch consecutive rings, wrapping around to close the loop
-    const R = Math.ceil(N / step);
-    for (let k = 0; k < R; k++) {
-      const a = k * 4, b = ((k + 1) % R) * 4;
-      indices.push(a, a + 2, b, b, a + 2, b + 2);             // left wall
-      indices.push(a + 1, b + 1, a + 3, a + 3, b + 1, b + 3); // right wall
+    for (let r = 0; r < nz; r++) {
+      for (let c = 0; c < nx; c++) {
+        const a = r * (nx + 1) + c, b = a + 1, d = a + nx + 1, e = d + 1;
+        indices.push(a, d, b, b, d, e);
+      }
     }
     const geo = new THREE.BufferGeometry();
     geo.setAttribute("position", new THREE.Float32BufferAttribute(positions, 3));
     geo.setIndex(indices);
     geo.computeVertexNormals();
-    const mat = new THREE.MeshStandardMaterial({
-      color: 0x2a2620, roughness: 1,
-      side: THREE.DoubleSide,
-    });
-    const skirts = new THREE.Mesh(geo, mat);
-    skirts.receiveShadow = true;
-    this.group.add(skirts);
+    const mat = new THREE.MeshStandardMaterial({ color: 0x22381f, roughness: 1 });
+    const terrain = new THREE.Mesh(geo, mat);
+    terrain.receiveShadow = true;
+    this.group.add(terrain);
+
+    // distant backdrop floor beyond the heightfield (fog hides the seam)
+    const ground = new THREE.Mesh(
+      new THREE.PlaneGeometry(4000, 4000),
+      new THREE.MeshStandardMaterial({ color: 0x1c2a1e, roughness: 1 })
+    );
+    ground.rotation.x = -Math.PI / 2;
+    ground.position.set((minX + maxX) / 2, -0.4, (minZ + maxZ) / 2);
+    ground.receiveShadow = true;
+    this.group.add(ground);
+  }
+
+  /* smooth procedural hills for the away-from-road terrain */
+  _hillNoise(x, z) {
+    return 2.8
+      + 1.5 * Math.sin(x * 0.012 + 1.3) * Math.cos(z * 0.010 + 0.7)
+      + 1.1 * Math.sin(x * 0.021 + z * 0.017 + 2.1)
+      + 0.8 * Math.cos(x * 0.007 - z * 0.008 + 0.4);
   }
 
   _makeRoadTexture() {
@@ -370,12 +441,13 @@ class Track {
     const dummy = new THREE.Object3D();
     const col = new THREE.Color();
     treePos.forEach((t, i) => {
-      dummy.position.set(t.x, 1.2 * t.s, t.z);
+      const gy = this._terrainHeight(t.x, t.z);
+      dummy.position.set(t.x, gy + 1.2 * t.s, t.z);
       dummy.scale.setScalar(t.s);
       dummy.rotation.set(0, Math.random() * 6.28, 0);
       dummy.updateMatrix();
       trunks.setMatrixAt(i, dummy.matrix);
-      dummy.position.set(t.x, (2.4 + 2.0) * t.s, t.z);
+      dummy.position.set(t.x, gy + (2.4 + 2.0) * t.s, t.z);
       dummy.updateMatrix();
       canopies.setMatrixAt(i, dummy.matrix);
       canopies.setColorAt(i, col.setHSL(0.32 + Math.random() * 0.06, 0.5, 0.28 + Math.random() * 0.12));
@@ -399,7 +471,8 @@ class Track {
     }
     const bMesh = new THREE.InstancedMesh(bGeo, bMat, buildings.length);
     buildings.forEach((b, i) => {
-      dummy.position.set(b.x, b.h / 2, b.z);
+      const gy = this._terrainHeight(b.x, b.z);
+      dummy.position.set(b.x, gy + b.h / 2, b.z);
       dummy.scale.set(b.w, b.h, b.d);
       dummy.rotation.set(0, Math.random() * 0.4, 0);
       dummy.updateMatrix();
@@ -428,12 +501,13 @@ class Track {
     const poleMesh = new THREE.InstancedMesh(poleGeo, poleMat, poles.length);
     const lampMesh = new THREE.InstancedMesh(lampGeo, lampMat, poles.length);
     poles.forEach((p, i) => {
-      dummy.position.set(p.x, p.y + 2.7, p.z);
+      const gy = this._terrainHeight(p.x, p.z);
+      dummy.position.set(p.x, gy + 2.7, p.z);
       dummy.scale.setScalar(1);
       dummy.rotation.set(0, 0, 0);
       dummy.updateMatrix();
       poleMesh.setMatrixAt(i, dummy.matrix);
-      dummy.position.set(p.x, p.y + 5.5, p.z);
+      dummy.position.set(p.x, gy + 5.5, p.z);
       dummy.updateMatrix();
       lampMesh.setMatrixAt(i, dummy.matrix);
     });
@@ -506,8 +580,8 @@ const TRACKS = {
     desc: "Steep climbs · tight hairpins · big drops",
     width: 13,
     points: _polarLoop(
-      [150, 95, 140, 80, 155, 105, 75, 135, 90, 150, 110, 130],
-      (i, n) => 7 * Math.sin(2 * Math.PI * i / n) + 2.5 * Math.sin(6 * Math.PI * i / n),
+      [150, 95, 140, 88, 155, 105, 85, 132, 95, 148, 110, 128],
+      (i, n) => 6 * Math.sin(2 * Math.PI * i / n) + 2 * Math.sin(6 * Math.PI * i / n),
       1.15
     ),
     meta: { length: "≈1.0 km", elev: "±9 m", style: "Mountain" },
