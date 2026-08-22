@@ -171,11 +171,18 @@ function setupTouch() {
   $("tc-reset").addEventListener("click", () => { game.audio.click(); game._resetPlayerToTrack(); });
 
   /* ---- tilt (accelerometer) steering ---- */
+  // Neutral is fully explicit: set once from a stabilized calibration and
+  // changed ONLY by tapping CAL (or re-enabling). No silent adaptation —
+  // the car goes exactly where the neutral says, every time.
   let tiltOn = false;
   let tiltBase = null;      // calibrated neutral angle
   const TILT_RANGE = 24;    // degrees past the dead zone for full lock
   const TILT_DEAD = 3;      // degrees of dead band around neutral (exact 0)
-  const CALIB_COUNT = 10;   // readings averaged for the initial neutral
+  const CALIB_COUNT = 12;   // smoothed readings averaged per calibration
+  const CALIB_DELAY = 400;  // ms after enabling before sampling starts
+  let calib = null;         // {sum, n} while calibrating
+  let calibDelayUntil = 0;
+  let smoothV = null;       // lightly smoothed tilt angle
 
   function tiltAngle(e) {
     // map the wheel-style tilt axis to the current screen orientation
@@ -188,44 +195,44 @@ function setupTouch() {
     return e.gamma;   // portrait
   }
 
-  let calibN = 0, calibSum = 0;
-
-  function resetTiltCalibration() {
-    calibN = 0;
-    calibSum = 0;
-    tiltBase = null;
+  function beginCalibration() {
+    calib = { sum: 0, n: 0, warm: 0 };
+    calibDelayUntil = performance.now() + CALIB_DELAY;  // let go of the tap
+    smoothV = null;
     game.tiltSteer = 0;
-  }
-
-  function tiltResponse(v) {
-    // signed response with a flat dead zone, then a linear ramp that
-    // reaches full lock at TILT_RANGE (no jump at the dead-zone edge)
-    const d = v - tiltBase;
-    const a = Math.abs(d);
-    if (a <= TILT_DEAD) {
-      // slow adaptive recentering: absorbs grip drift / sensor bias while
-      // you're rolling near-neutral, so the car stays genuinely straight
-      tiltBase += d * 0.008;
-      return 0;
-    }
-    const s = d > 0 ? 1 : -1;
-    return s * Math.min(1, (a - TILT_DEAD) / (TILT_RANGE - TILT_DEAD));
   }
 
   window.addEventListener("deviceorientation", (e) => {
     if (!tiltOn) return;
     const v = tiltAngle(e);
     if (v === null || v === undefined || Number.isNaN(v)) return;
-    if (tiltBase === null || calibN < CALIB_COUNT) {
-      // initial calibration: average the first few readings so one noisy
-      // instant doesn't define "straight"
-      calibSum += v;
-      calibN++;
-      if (calibN >= CALIB_COUNT) tiltBase = calibSum / CALIB_COUNT;
+
+    if (calib) {
+      // settle window: ignore everything AND freeze the smoothing filter,
+      // so pre-tap angles can't leak into the neutral estimate
+      if (performance.now() < calibDelayUntil) { game.tiltSteer = 0; return; }
+      if (smoothV === null) smoothV = v;
+      else smoothV += (v - smoothV) * 0.35;
+      calib.warm++;
+      if (calib.warm <= 3) { game.tiltSteer = 0; return; }  // filter burn-in
+      calib.sum += smoothV;
+      calib.n++;
+      if (calib.n >= CALIB_COUNT) {
+        tiltBase = calib.sum / calib.n;
+        calib = null;
+        $("tc-cal").textContent = "CAL";
+      }
       game.tiltSteer = 0;
       return;
     }
-    game.tiltSteer = tiltResponse(v);
+
+    if (smoothV === null) smoothV = v;
+    else smoothV += (v - smoothV) * 0.35;
+    const d = smoothV - tiltBase;
+    const a = Math.abs(d);
+    game.tiltSteer = a <= TILT_DEAD
+      ? 0
+      : (d > 0 ? 1 : -1) * Math.min(1, (a - TILT_DEAD) / (TILT_RANGE - TILT_DEAD));
   });
 
   async function enableTilt() {
@@ -237,29 +244,42 @@ function setupTouch() {
         if (res !== "granted") return false;
       }
       tiltOn = true;
-      resetTiltCalibration();   // recalibrate neutral from fresh readings
       ui.classList.add("tilt");
       $("tc-tilt").classList.add("on");
       $("tc-tilt").textContent = "TILT✓";
+      $("tc-cal").classList.remove("hidden");
+      $("tc-cal").classList.add("on");
+      beginCalibration();
       return true;
     } catch (_) {
       return false;
     }
   }
 
+  function disableTilt() {
+    tiltOn = false;
+    game.tiltSteer = null;
+    ui.classList.remove("tilt");
+    $("tc-tilt").classList.remove("on");
+    $("tc-tilt").textContent = "TILT";
+    $("tc-cal").classList.add("hidden");
+    $("tc-cal").classList.remove("on");
+  }
+
   $("tc-tilt").addEventListener("click", async () => {
     game.audio.init();
     game.audio.click();
-    if (tiltOn) {
-      // tap again to disable… or recenter by toggling off+on
-      tiltOn = false;
-      game.tiltSteer = null;
-      ui.classList.remove("tilt");
-      $("tc-tilt").classList.remove("on");
-      $("tc-tilt").textContent = "TILT";
-    } else {
-      await enableTilt();
-    }
+    if (tiltOn) disableTilt();
+    else await enableTilt();
+  });
+
+  // explicit recenter: re-run calibration from the current grip
+  $("tc-cal").addEventListener("click", () => {
+    if (!tiltOn || calib) return;
+    game.audio.init();
+    game.audio.click();
+    $("tc-cal").textContent = "…";
+    beginCalibration();
   });
 
   // block iOS pinch-zoom during play
