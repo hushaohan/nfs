@@ -212,7 +212,7 @@ kbd {
 @keyframes pop { 0% { transform: scale(2.2); opacity: 0; } 30% { transform: scale(1); opacity: 1; } 100% { transform: scale(0.92); opacity: 0.9; } }
 
 #drift-score {
-  position: absolute; bottom: 120px; left: 50%; transform: translateX(-50%);
+  position: absolute; bottom: 228px; left: 50%; transform: translateX(-50%);
   font-size: 26px; font-weight: 900; font-style: italic;
   color: #ffb300; text-shadow: 0 0 20px rgba(255,179,0,0.7);
   letter-spacing: 2px;
