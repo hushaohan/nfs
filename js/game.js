@@ -19,6 +19,8 @@ class Game {
     this.selectedCar = "falcon";
     this.trackKey = "downtown";
     this.autoBrake = false;
+    // tilt steering invert (set by the INV touch chip; 1 = normal, -1 = flipped)
+    this.tiltInvert = 1;
     // on-screen touch controls (set by main.js; merged into player input)
     this.touch = { left: false, right: false, gas: false, brake: false, nitro: false, handbrake: false };
     // accelerometer steering: number in [-1, 1] while tilt mode is on,
@@ -328,7 +330,8 @@ class Game {
     if (kSteer !== 0) {
       steer += kSteer;
     } else if (typeof this.tiltSteer === "number" && !Number.isNaN(this.tiltSteer)) {
-      steer += Math.max(-1, Math.min(1, this.tiltSteer));
+      const inv = this.tiltInvert || 1;
+      steer += Math.max(-1, Math.min(1, this.tiltSteer * inv));
     }
     // auto-brake: releasing the throttle applies the brakes (toggle with B)
     if (this.autoBrake && throttle === 0 && brake === 0 && this.player) {

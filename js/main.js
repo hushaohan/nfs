@@ -189,8 +189,8 @@ function setupTouch() {
     const ang = (screen.orientation && typeof screen.orientation.angle === "number")
       ? screen.orientation.angle
       : (typeof window.orientation === "number" ? window.orientation : 0);
-    if (ang === 90) return e.beta === null ? null : -e.beta;
-    if (ang === 270 || ang === -90) return e.beta;
+    if (ang === 90) return e.beta;
+    if (ang === 270 || ang === -90) return e.beta === null ? null : -e.beta;
     if (ang === 180) return e.gamma === null ? null : -e.gamma;
     return e.gamma;   // portrait
   }
@@ -249,6 +249,7 @@ function setupTouch() {
       $("tc-tilt").textContent = "TILT✓";
       $("tc-cal").classList.remove("hidden");
       $("tc-cal").classList.add("on");
+      $("tc-inv").classList.remove("hidden");
       beginCalibration();
       return true;
     } catch (_) {
@@ -264,6 +265,8 @@ function setupTouch() {
     $("tc-tilt").textContent = "TILT";
     $("tc-cal").classList.add("hidden");
     $("tc-cal").classList.remove("on");
+    $("tc-inv").classList.add("hidden");
+    $("tc-inv").classList.remove("on");
   }
 
   $("tc-tilt").addEventListener("click", async () => {
@@ -280,6 +283,15 @@ function setupTouch() {
     game.audio.click();
     $("tc-cal").textContent = "…";
     beginCalibration();
+  });
+
+  // invert tilt direction (device sign conventions vary by platform)
+  $("tc-inv").addEventListener("click", () => {
+    if (!tiltOn) return;
+    game.audio.init();
+    game.audio.click();
+    game.tiltInvert = game.tiltInvert === 1 ? -1 : 1;
+    $("tc-inv").classList.toggle("on", game.tiltInvert === -1);
   });
 
   // block iOS pinch-zoom during play

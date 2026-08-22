@@ -319,6 +319,7 @@ kbd {
 #tc-reset { top: 84px; left: 72px; }
 #tc-tilt  { top: 84px; left: 126px; font-size: 10px; letter-spacing: 1px; }
 #tc-cal   { top: 84px; left: 180px; font-size: 10px; letter-spacing: 1px; }
+#tc-inv   { top: 84px; left: 234px; font-size: 10px; letter-spacing: 1px; }
 .tbtn.chip.on { background: rgba(0,170,255,0.30); border-color: var(--accent2); color: #fff; }
 
 /* ---- tilt steering mode: no steer buttons, drift/nitro move bottom-left ---- */
