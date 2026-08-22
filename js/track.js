@@ -8,6 +8,8 @@
 class Track {
   constructor(scene, opts = {}) {
     this.scene = scene;
+    this.key = opts.key || "downtown";
+    this.name = opts.name || "DOWNTOWN CIRCUIT";
     this.width = opts.width || 14;          // road half-width * 2
     this.halfW = this.width / 2;
     this.barrierDist = this.halfW + 1.2;    // distance of barriers from center
@@ -16,27 +18,29 @@ class Track {
     this.group = new THREE.Group();
     scene.add(this.group);
 
-    this._buildControlPoints();
+    this._buildControlPoints(opts.points);
     this._sampleSpline();
     this._buildRoad();
+    this._buildSkirts();
     this._buildBarriers();
     this._buildStartLine();
     this._buildScenery();
   }
 
-  /* ---------- control points for a varied street circuit ---------- */
-  _buildControlPoints() {
-    // hand-tuned circuit: long straights, hairpins, sweepers, chicane
-    const P = [
-      [   0,    0], [ 120,    0], [ 220,   10], [ 300,   60],
-      [ 330,  150], [ 300,  230], [ 210,  260], [ 120,  240],
-      [  60,  290], [  90,  370], [ 180,  400], [ 280,  380],
-      [ 360,  420], [ 380,  510], [ 320,  580], [ 210,  600],
-      [ 100,  570], [  20,  490], [ -60,  430], [-150,  420],
-      [-230,  360], [-260,  260], [-230,  160], [-150,  100],
-      [ -80,   50],
+  /* ---------- control points (x, z, elevation y) ---------- */
+  _buildControlPoints(points) {
+    // default: hand-tuned flat street circuit — long straights, hairpins,
+    // sweepers, chicane
+    const P = points || [
+      [   0,    0, 0], [ 120,    0, 0], [ 220,   10, 0], [ 300,   60, 0],
+      [ 330,  150, 0], [ 300,  230, 0], [ 210,  260, 0], [ 120,  240, 0],
+      [  60,  290, 0], [  90,  370, 0], [ 180,  400, 0], [ 280,  380, 0],
+      [ 360,  420, 0], [ 380,  510, 0], [ 320,  580, 0], [ 210,  600, 0],
+      [ 100,  570, 0], [  20,  490, 0], [ -60,  430, 0], [-150,  420, 0],
+      [-230,  360, 0], [-260,  260, 0], [-230,  160, 0], [-150,  100, 0],
+      [ -80,   50, 0],
     ];
-    this.controlPoints = P.map(p => new THREE.Vector3(p[0], 0, p[1]));
+    this.controlPoints = P.map(p => new THREE.Vector3(p[0], p[2] || 0, p[1]));
     this.curve = new THREE.CatmullRomCurve3(this.controlPoints, true, "catmullrom", 0.5);
   }
 
@@ -109,9 +113,24 @@ class Track {
     const s = this.samples[i % N];
     return {
       x: s.pos.x + s.nx * lateral,
+      y: s.pos.y,
       z: s.pos.z + s.nz * lateral,
       tan: s.tan, idx: i % N,
     };
+  }
+
+  /* road surface height at a world point (nearest sample) */
+  heightAt(x, z, hint = -1) {
+    return this.samples[this.nearestIndex(x, z, hint)].pos.y;
+  }
+
+  /* track gradient dh/dd at sample idx (positive = climbing) */
+  slopeAt(idx) {
+    const N = this.samples.length;
+    const a = this.samples[((idx - 3) % N + N) % N].pos.y;
+    const b = this.samples[(idx + 3) % N].pos.y;
+    const d = (this.length / N) * 6;   // arc length between the two probes
+    return (b - a) / d;
   }
 
   /* ---------- road ribbon mesh ---------- */
@@ -126,8 +145,8 @@ class Track {
       const s = this.samples[i % N];
       const l = i / N * this.length;
       // left & right edge
-      positions.push(s.pos.x + s.nx * hw, 0.02, s.pos.z + s.nz * hw);
-      positions.push(s.pos.x - s.nx * hw, 0.02, s.pos.z - s.nz * hw);
+      positions.push(s.pos.x + s.nx * hw, s.pos.y + 0.02, s.pos.z + s.nz * hw);
+      positions.push(s.pos.x - s.nx * hw, s.pos.y + 0.02, s.pos.z - s.nz * hw);
       uvs.push(0, l / 8); uvs.push(1, l / 8);
       if (i < N) {
         const a = i * 2, b = i * 2 + 1, c = i * 2 + 2, d = i * 2 + 3;
@@ -157,6 +176,42 @@ class Track {
     ground.position.set(60, -0.05, 300);
     ground.receiveShadow = true;
     this.group.add(ground);
+  }
+
+  /* ---------- embankment skirts: drop the road edges to the ground so
+   * hilly sections look like solid earthworks instead of floating ribbons */
+  _buildSkirts() {
+    const N = this.samples.length;
+    const step = 4;
+    const positions = [];
+    const indices = [];
+    const hw = this.halfW + 0.4;
+    let vi = 0;
+    for (let i = 0; i < N; i += step) {
+      const s = this.samples[i];
+      // top pair at road edge height, bottom pair just under the ground
+      positions.push(s.pos.x + s.nx * hw, s.pos.y + 0.02, s.pos.z + s.nz * hw);
+      positions.push(s.pos.x - s.nx * hw, s.pos.y + 0.02, s.pos.z - s.nz * hw);
+      positions.push(s.pos.x + s.nx * hw, -0.25, s.pos.z + s.nz * hw);
+      positions.push(s.pos.x - s.nx * hw, -0.25, s.pos.z - s.nz * hw);
+      if (i + step < N) {
+        const a = vi, b = vi + 4;                 // next ring
+        indices.push(a, a + 2, b, b, a + 2, b + 2);       // left wall
+        indices.push(a + 1, b + 1, a + 3, a + 3, b + 1, b + 3); // right wall
+      }
+      vi += 4;
+    }
+    const geo = new THREE.BufferGeometry();
+    geo.setAttribute("position", new THREE.Float32BufferAttribute(positions, 3));
+    geo.setIndex(indices);
+    geo.computeVertexNormals();
+    const mat = new THREE.MeshStandardMaterial({
+      color: 0x2a2620, roughness: 1,
+      side: THREE.DoubleSide,
+    });
+    const skirts = new THREE.Mesh(geo, mat);
+    skirts.receiveShadow = true;
+    this.group.add(skirts);
   }
 
   _makeRoadTexture() {
@@ -208,11 +263,11 @@ class Track {
       for (const side of [1, -1]) {
         const bx = mx + s.nx * side * this.barrierDist;
         const bz = mz + s.nz * side * this.barrierDist;
-        walls.push({ x: bx, z: bz, ang, len: segLen, mat: alt ? matRed : matWhite });
+        walls.push({ x: bx, y: s.pos.y + 0.55, z: bz, ang, len: segLen, mat: alt ? matRed : matWhite });
         // curbs just inside the barrier
         const cx = mx + s.nx * side * (this.halfW + 0.35);
         const cz = mz + s.nz * side * (this.halfW + 0.35);
-        curbs.push({ x: cx, z: cz, ang, len: segLen, mat: alt ? matCurbR : matCurbW });
+        curbs.push({ x: cx, y: s.pos.y + 0.06, z: cz, ang, len: segLen, mat: alt ? matCurbR : matCurbW });
       }
     }
 
@@ -221,7 +276,7 @@ class Track {
     const dummy = new THREE.Object3D();
     const color = new THREE.Color();
     walls.forEach((w, i) => {
-      dummy.position.set(w.x, 0.55, w.z);
+      dummy.position.set(w.x, w.y, w.z);
       dummy.rotation.set(0, w.ang, 0);
       dummy.scale.set(0.5, 1.1, w.len);
       dummy.updateMatrix();
@@ -234,7 +289,7 @@ class Track {
 
     const curbMesh = new THREE.InstancedMesh(wallGeo, matCurbR, curbs.length);
     curbs.forEach((w, i) => {
-      dummy.position.set(w.x, 0.06, w.z);
+      dummy.position.set(w.x, w.y, w.z);
       dummy.rotation.set(0, w.ang, 0);
       dummy.scale.set(1.1, 0.12, w.len);
       dummy.updateMatrix();
@@ -260,7 +315,7 @@ class Track {
     const mat = new THREE.MeshStandardMaterial({ map: tex, roughness: 0.8 });
     const line = new THREE.Mesh(geo, mat);
     line.rotation.x = -Math.PI / 2;
-    line.position.set(s.pos.x, 0.035, s.pos.z);
+    line.position.set(s.pos.x, s.pos.y + 0.035, s.pos.z);
     line.rotation.z = Math.atan2(s.tan.x, s.tan.z);
     this.group.add(line);
 
@@ -269,12 +324,12 @@ class Track {
     const postGeo = new THREE.BoxGeometry(0.5, 7, 0.5);
     for (const side of [1, -1]) {
       const post = new THREE.Mesh(postGeo, gMat);
-      post.position.set(s.pos.x + s.nx * side * (this.halfW + 2), 3.5, s.pos.z + s.nz * side * (this.halfW + 2));
+      post.position.set(s.pos.x + s.nx * side * (this.halfW + 2), s.pos.y + 3.5, s.pos.z + s.nz * side * (this.halfW + 2));
       post.castShadow = true;
       this.group.add(post);
     }
     const beam = new THREE.Mesh(new THREE.BoxGeometry(this.width + 4, 1.2, 0.6), gMat);
-    beam.position.set(s.pos.x, 6.6, s.pos.z);
+    beam.position.set(s.pos.x, s.pos.y + 6.6, s.pos.z);
     // span ACROSS the road: align the beam's long (local X) axis with the
     // track normal, i.e. orthogonal to the driving direction
     beam.rotation.y = Math.atan2(-s.nz, s.nx);
@@ -355,17 +410,21 @@ class Track {
     for (let i = 0; i < N; i += 46) {
       const s = this.samples[i];
       const side = (i / 46) % 2 === 0 ? 1 : -1;
-      poles.push({ x: s.pos.x + s.nx * side * (this.barrierDist + 2.2), z: s.pos.z + s.nz * side * (this.barrierDist + 2.2) });
+      poles.push({
+        x: s.pos.x + s.nx * side * (this.barrierDist + 2.2),
+        z: s.pos.z + s.nz * side * (this.barrierDist + 2.2),
+        y: s.pos.y,
+      });
     }
     const poleMesh = new THREE.InstancedMesh(poleGeo, poleMat, poles.length);
     const lampMesh = new THREE.InstancedMesh(lampGeo, lampMat, poles.length);
     poles.forEach((p, i) => {
-      dummy.position.set(p.x, 2.7, p.z);
+      dummy.position.set(p.x, p.y + 2.7, p.z);
       dummy.scale.setScalar(1);
       dummy.rotation.set(0, 0, 0);
       dummy.updateMatrix();
       poleMesh.setMatrixAt(i, dummy.matrix);
-      dummy.position.set(p.x, 5.5, p.z);
+      dummy.position.set(p.x, p.y + 5.5, p.z);
       dummy.updateMatrix();
       lampMesh.setMatrixAt(i, dummy.matrix);
     });
@@ -394,3 +453,54 @@ class Track {
 }
 
 function tsign(v) { return v > 0 ? 1 : v < 0 ? -1 : 0; }
+
+/* ---------- track library ----------
+ * points are [x, z, elevation]; polar-style loops (radius per angle step)
+ * are guaranteed non-self-intersecting. Heights are sums of sinusoids so
+ * the loop closes smoothly with no cliff at the start/finish seam.      */
+function _polarLoop(radii, heightFn, scale = 1) {
+  const n = radii.length;
+  const base = heightFn(0, n);   // normalize so the grid area is flat
+  return radii.map((r, i) => {
+    const a = (i / n) * Math.PI * 2;
+    return [
+      Math.cos(a) * r * scale,
+      Math.sin(a) * r * scale,
+      heightFn(i, n) - base,
+    ];
+  });
+}
+
+const TRACKS = {
+  downtown: {
+    key: "downtown",
+    name: "DOWNTOWN CIRCUIT",
+    desc: "Flat street circuit · hairpins & chicanes",
+    width: 14,
+    meta: { length: "≈2.4 km", elev: "flat", style: "Technical" },
+  },
+  ridgeline: {
+    key: "ridgeline",
+    name: "RIDGELINE RUN",
+    desc: "Rolling hills · high-speed sweepers",
+    width: 15,
+    points: _polarLoop(
+      [200, 175, 215, 165, 195, 170, 220, 180, 160, 200, 170, 210, 175, 185],
+      (i, n) => 6 * Math.sin(4 * Math.PI * i / n) + 3 * Math.sin(2 * Math.PI * i / n),
+      1.35
+    ),
+    meta: { length: "≈1.8 km", elev: "±9 m", style: "Hilly" },
+  },
+  canyon: {
+    key: "canyon",
+    name: "CANYON SPRINT",
+    desc: "Steep climbs · tight hairpins · big drops",
+    width: 13,
+    points: _polarLoop(
+      [150, 95, 140, 80, 155, 105, 75, 135, 90, 150, 110, 130],
+      (i, n) => 7 * Math.sin(2 * Math.PI * i / n) + 2.5 * Math.sin(6 * Math.PI * i / n),
+      1.15
+    ),
+    meta: { length: "≈1.0 km", elev: "±9 m", style: "Mountain" },
+  },
+};

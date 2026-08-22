@@ -17,6 +17,7 @@ class Game {
   constructor() {
     this.state = STATES.MENU;
     this.selectedCar = "falcon";
+    this.trackKey = "downtown";
     this.autoBrake = false;
     // on-screen touch controls (set by main.js; merged into player input)
     this.touch = { left: false, right: false, gas: false, brake: false, nitro: false, handbrake: false };
@@ -58,7 +59,7 @@ class Game {
     this._buildLights();
     this._buildSky();
 
-    this.track = new Track(this.scene);
+    this._buildTrack(this.trackKey);
     this.particles = new ParticleSystem(this.scene);
 
     this._buildMinimapPath();
@@ -131,8 +132,18 @@ class Game {
   }
 
   /* ================= race lifecycle ================= */
+  /* (re)build the world for the selected track */
+  _buildTrack(key) {
+    const def = TRACKS[key] || TRACKS.downtown;
+    if (this.track) this.scene.remove(this.track.group);
+    this.track = new Track(this.scene, def);
+    this.trackKey = def.key;
+  }
+
   startRace() {
     this._clearRacers();
+    this._buildTrack(this.trackKey);   // fresh world for the selected track
+    this._buildMinimapPath();
     this.audio.init();
     this.audio.resume();
 
@@ -166,7 +177,7 @@ class Game {
           isPlayer: false, name: AI_NAMES[i % AI_NAMES.length], color: aiSpec.color,
         };
       }
-      racer.mesh.position.set(p.x, 0, p.z);
+      racer.mesh.position.set(p.x, p.y || 0, p.z);
       racer.mesh.rotation.y = Math.PI / 2 - heading;
       this.scene.add(racer.mesh);
 
@@ -377,7 +388,8 @@ class Game {
           ? r.ai.drive(dt, this.racers.map(x => x.car), this.state === STATES.RACING)
           : { throttle: 0, brake: 0, steer: 0, handbrake: false, nitro: false };
       }
-      r.car.step(dt, input, 1.0);
+      r.slope = this.track.slopeAt(r.hintIdx);
+      r.car.step(dt, input, 1.0, r.slope);
     }
   }
 
@@ -504,11 +516,14 @@ class Game {
   _updateEffects(dt) {
     for (const r of this.racers) {
       const car = r.car;
-      // sync mesh
-      r.mesh.position.set(car.x, 0, car.z);
+      // sync mesh — ride the road surface, pitch with its gradient
+      const ry = this.track.heightAt(car.x, car.z, r.hintIdx);
+      r.roadY = ry;
+      r.visPitch = (r.visPitch || 0) + (Math.atan(r.slope || 0) - (r.visPitch || 0)) * Math.min(1, dt * 8);
+      r.mesh.position.set(car.x, ry, car.z);
       r.mesh.rotation.order = "YXZ";
       r.mesh.rotation.y = Math.PI / 2 - car.heading;
-      r.mesh.rotation.x = -car.accelX * 0.004;
+      r.mesh.rotation.x = -car.accelX * 0.004 - r.visPitch;
       r.mesh.rotation.z = car.accelY * 0.006;
 
       // wheels
@@ -529,14 +544,14 @@ class Game {
         for (const side of [-1, 1]) {
           const wx = car.x - c * car.cgToRear - (-s) * side * car.trackWidth / 2;
           const wz = car.z - s * car.cgToRear - c * side * car.trackWidth / 2;
-          this.particles.smoke(wx, 0.15, wz, car.driftAmount);
+          this.particles.smoke(wx, 0.15 + ry, wz, car.driftAmount);
         }
       }
       // nitro flames from exhaust
       if (car.nitroActive) {
         const c = Math.cos(car.heading), s = Math.sin(car.heading);
         const ex = car.x - c * 2.3, ez = car.z - s * 2.3;
-        this.particles.nitroFlame(ex, 0.45, ez, -c, -s);
+        this.particles.nitroFlame(ex, 0.45 + ry, ez, -c, -s);
       }
     }
 
@@ -573,32 +588,33 @@ class Game {
       // menu orbit camera around track start
       const t = performance.now() / 1000;
       const s = this.track.samples[0];
-      this.camera.position.set(s.pos.x + Math.cos(t * 0.1) * 60, 26, s.pos.z + Math.sin(t * 0.1) * 60);
-      this.camera.lookAt(s.pos.x, 0, s.pos.z);
+      this.camera.position.set(s.pos.x + Math.cos(t * 0.1) * 60, 26 + s.pos.y, s.pos.z + Math.sin(t * 0.1) * 60);
+      this.camera.lookAt(s.pos.x, s.pos.y, s.pos.z);
       this.sky.position.copy(this.camera.position);
       return;
     }
     const car = p.car;
     const c = Math.cos(car.heading), s = Math.sin(car.heading);
+    const ry = p.roadY || 0;   // road elevation under the player
     let desired, look;
 
     if (this.cameraMode === 1) {
       // hood cam
-      desired = new THREE.Vector3(car.x + c * 0.6, 1.15, car.z + s * 0.6);
-      look = new THREE.Vector3(car.x + c * 30, 1.0, car.z + s * 30);
+      desired = new THREE.Vector3(car.x + c * 0.6, ry + 1.15, car.z + s * 0.6);
+      look = new THREE.Vector3(car.x + c * 30, ry + 1.0, car.z + s * 30);
       this.camera.position.copy(desired);
     } else if (this.cameraMode === 2) {
       // far cinematic
-      desired = new THREE.Vector3(car.x - c * 13, 5.5, car.z - s * 13);
-      look = new THREE.Vector3(car.x + c * 8, 1, car.z + s * 8);
+      desired = new THREE.Vector3(car.x - c * 13, ry + 5.5, car.z - s * 13);
+      look = new THREE.Vector3(car.x + c * 8, ry + 1, car.z + s * 8);
       const k = 1 - Math.exp(-dt * 3);
       this.camera.position.lerp(desired, k);
     } else {
       // chase cam — close and high: steeper look-down shows the road
       // shape ahead; pulls back slightly with speed
       const dist = 3.6 + Math.abs(car.vx) * 0.010;
-      desired = new THREE.Vector3(car.x - c * dist, 2.40 + Math.abs(car.vx) * 0.0075, car.z - s * dist);
-      look = new THREE.Vector3(car.x + c * 8, 1.0, car.z + s * 8);
+      desired = new THREE.Vector3(car.x - c * dist, ry + 2.40 + Math.abs(car.vx) * 0.0075, car.z - s * dist);
+      look = new THREE.Vector3(car.x + c * 8, ry + 1.0, car.z + s * 8);
       const k = 1 - Math.exp(-dt * 6.5);
       this.camera.position.lerp(desired, k);
     }

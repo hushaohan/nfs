@@ -72,10 +72,25 @@ Fixed 120 Hz physics substeps keep the integration stable.
 | VIPER X      | Top speed, AWD, 7-speed |
 | KITSUNE RS   | Handling, light, RWD |
 
+## Tracks
+
+Pick a track from the main menu (SELECT TRACK):
+
+| Track             | Character                              |
+|-------------------|----------------------------------------|
+| DOWNTOWN CIRCUIT  | Flat 2.5 km street circuit, technical  |
+| RIDGELINE RUN     | Rolling hills (±9 m), fast sweepers    |
+| CANYON SPRINT     | Short 1.1 km mountain run, steep climbs and drops up to ~11% grade |
+
+Hilly tracks carry real elevation: the road, curbs, barriers, gantry, and
+streetlights all follow the spline height, embankment skirts ground the road,
+the camera rides the terrain, car meshes pitch with the gradient, and gravity
+along the slope slows climbs and speeds up descents.
+
 ## Features
 
-- Procedural 2.5 km street circuit (Catmull-Rom spline) with barriers,
-  curbs, start gantry, trees, buildings, and streetlights.
+- Three procedural circuits (Catmull-Rom splines, optional elevation) with
+  barriers, curbs, start gantry, trees, buildings, and streetlights.
 - 5 AI opponents: pure-pursuit steering, curvature-based braking,
   skill-scaled cornering limits, avoidance, stuck-recovery.
 - Race logic: 3 laps, live position, lap/best/last timers, wrong-way

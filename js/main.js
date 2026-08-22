@@ -38,6 +38,38 @@ function buildCarSelect() {
 
 function updateMenuFooter() {
   $("menu-car-name").textContent = CAR_SPECS[game.selectedCar].name + " · " + CAR_SPECS[game.selectedCar].cls;
+  const t = TRACKS[game.trackKey] || TRACKS.downtown;
+  $("menu-track-name").textContent = t.name + " · " + t.meta.length + " · " + t.meta.elev;
+}
+
+function buildTrackSelect() {
+  const grid = $("track-grid");
+  grid.innerHTML = "";
+  for (const key of Object.keys(TRACKS)) {
+    const def = TRACKS[key];
+    const card = document.createElement("div");
+    card.className = "car-card" + (key === game.trackKey ? " selected" : "");
+    card.dataset.key = key;
+    card.innerHTML = `
+      <div class="car-name">${def.name}</div>
+      <div class="car-class">${def.desc}</div>
+      <div class="track-meta">
+        <span>${def.meta.length}</span>
+        <span>elevation ${def.meta.elev}</span>
+        <span>${def.meta.style}</span>
+      </div>
+    `;
+    card.addEventListener("click", () => {
+      game.trackKey = key;
+      // rebuild the world immediately so the menu orbit shows the new track
+      game._buildTrack(key);
+      game.audio.init();
+      game.audio.click();
+      buildTrackSelect();
+      updateMenuFooter();
+    });
+    grid.appendChild(card);
+  }
 }
 
 function wireButtons() {
@@ -46,6 +78,10 @@ function wireButtons() {
   $("btn-controls").addEventListener("click", () => { game.audio.init(); game.audio.click(); game._showScreen("menu-controls"); });
   $("btn-car-back").addEventListener("click", () => { game.audio.click(); game._showScreen("menu-main"); });
   $("btn-car-confirm").addEventListener("click", () => { game.audio.click(); game._showScreen("menu-main"); });
+
+  $("btn-track").addEventListener("click", () => { game.audio.init(); game.audio.click(); buildTrackSelect(); game._showScreen("menu-track"); });
+  $("btn-track-back").addEventListener("click", () => { game.audio.click(); game._showScreen("menu-main"); });
+  $("btn-track-confirm").addEventListener("click", () => { game.audio.click(); game._showScreen("menu-main"); });
   $("btn-controls-back").addEventListener("click", () => { game.audio.click(); game._showScreen("menu-main"); });
 
   // auto-brake toggle (button mirrors the B hotkey)

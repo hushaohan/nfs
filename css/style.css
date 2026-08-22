@@ -92,6 +92,11 @@ h2 { font-size: 34px; letter-spacing: 4px; margin-bottom: 28px; font-style: ital
 .car-card.selected { border-color: var(--accent); background: rgba(255,59,48,0.14); box-shadow: 0 0 24px rgba(255,59,48,0.25); }
 .car-card .car-name { font-weight: 800; font-size: 17px; letter-spacing: 1px; margin-bottom: 2px; }
 .car-card .car-class { color: var(--accent2); font-size: 11px; letter-spacing: 3px; margin-bottom: 12px; }
+.car-card .track-meta {
+  display: flex; justify-content: space-between; gap: 8px;
+  font-size: 10px; letter-spacing: 1px; color: var(--dim);
+  border-top: 1px solid rgba(255,255,255,0.08); padding-top: 10px;
+}
 .stat-row { display: flex; align-items: center; gap: 8px; margin: 6px 0; font-size: 10px; color: var(--dim); letter-spacing: 1px; }
 .stat-row .stat-label { width: 62px; text-align: right; }
 .stat-bar { flex: 1; height: 5px; background: rgba(255,255,255,0.1); }

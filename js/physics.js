@@ -105,11 +105,19 @@ class CarPhysics {
    * step — advance the simulation by dt seconds
    * input = { throttle, brake, steer(-1..1), handbrake, nitro }
    * ------------------------------------------------------------------ */
-  step(dt, input, surfaceGrip = 1.0) {
+  step(dt, input, surfaceGrip = 1.0, slope = 0) {
     const th   = clamp(input.throttle, 0, 1);
     const br   = clamp(input.brake, 0, 1);
     const stIn = clamp(input.steer, -1, 1);
     const hb   = input.handbrake ? 1 : 0;
+
+    /* ---------- gravity along track gradient ----------
+     * slope = dh/dd of the road under the car (positive = climbing).
+     * Held at standstill (no pedals, nearly stopped) so parked cars
+     * don't creep during the countdown.                              */
+    if (slope !== 0 && (Math.abs(this.vx) > 0.3 || th > 0 || br > 0)) {
+      this.vx -= 9.81 * slope * dt;
+    }
 
     /* ---------- steering (rate-limited, speed-sensitive) ---------- */
     const maxSteer = this.spec.maxSteer;                 // rad at low speed
