@@ -41,6 +41,13 @@ class Track {
       [ -80,   50, 0],
     ];
     this.controlPoints = P.map(p => new THREE.Vector3(p[0], p[2] || 0, p[1]));
+    // lift the whole loop so the lowest point sits just above the flat
+    // terrain plane — otherwise downhill sections get buried under it
+    const minY = Math.min(...this.controlPoints.map(p => p.y));
+    if (minY < 1) {
+      const lift = 1 - minY;
+      for (const p of this.controlPoints) p.y += lift;
+    }
     this.curve = new THREE.CatmullRomCurve3(this.controlPoints, true, "catmullrom", 0.5);
   }
 
@@ -194,12 +201,14 @@ class Track {
       positions.push(s.pos.x - s.nx * hw, s.pos.y + 0.02, s.pos.z - s.nz * hw);
       positions.push(s.pos.x + s.nx * hw, -0.25, s.pos.z + s.nz * hw);
       positions.push(s.pos.x - s.nx * hw, -0.25, s.pos.z - s.nz * hw);
-      if (i + step < N) {
-        const a = vi, b = vi + 4;                 // next ring
-        indices.push(a, a + 2, b, b, a + 2, b + 2);       // left wall
-        indices.push(a + 1, b + 1, a + 3, a + 3, b + 1, b + 3); // right wall
-      }
       vi += 4;
+    }
+    // stitch consecutive rings, wrapping around to close the loop
+    const R = Math.ceil(N / step);
+    for (let k = 0; k < R; k++) {
+      const a = k * 4, b = ((k + 1) % R) * 4;
+      indices.push(a, a + 2, b, b, a + 2, b + 2);             // left wall
+      indices.push(a + 1, b + 1, a + 3, a + 3, b + 1, b + 3); // right wall
     }
     const geo = new THREE.BufferGeometry();
     geo.setAttribute("position", new THREE.Float32BufferAttribute(positions, 3));
