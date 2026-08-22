@@ -99,13 +99,13 @@ h2 { font-size: 34px; letter-spacing: 4px; margin-bottom: 28px; font-style: ital
 }
 #menu-track .menu-inner {
   max-width: 1220px;
-  display: flex; flex-direction: column; justify-content: space-between;
-  padding: 30px 0 24px;
+  display: flex; flex-direction: column;
+  padding: 26px 0 20px;
 }
-#menu-track h2 { text-shadow: 0 2px 14px rgba(0,0,0,0.85); }
-#track-grid { display: flex; gap: 14px; justify-content: center; align-items: stretch; flex-wrap: wrap; margin-bottom: 8px; }
+#menu-track h2 { text-shadow: 0 2px 14px rgba(0,0,0,0.85); margin-bottom: auto; }
+#track-grid { display: flex; gap: 14px; justify-content: center; align-items: stretch; flex-wrap: wrap; }
 #track-grid .car-card { width: 208px; padding: 15px; }
-#menu-track .menu-buttons { margin-top: 4px; }
+#menu-track .menu-buttons { margin-top: 12px; }
 .car-card {
   width: 240px; padding: 18px;
   background: var(--panel);
