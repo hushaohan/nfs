@@ -66,26 +66,30 @@ Fixed 120 Hz physics substeps keep the integration stable.
 
 ## Cars
 
-| Car          | Character            |
-|--------------|----------------------|
-| FALCON GT    | Balanced, RWD        |
-| VIPER X      | Top speed, AWD, 7-speed |
-| KITSUNE RS   | Handling, light, RWD |
+| Car          | Character | Body design |
+|--------------|-----------|-------------|
+| FALCON GT    | Balanced, RWD | Brute muscle coupe — long hood, ducktail, quad lamps, side pipes |
+| VIPER X      | Top speed, AWD, 7-speed | Low wedge hypercar — knife nose, teardrop canopy, twin-element wing |
+| KITSUNE RS   | Handling, light, RWD | Cab-forward drift hatch — fender flares, roof fins, tall hatch |
 
 ## Tracks
 
-Pick a track from the main menu (SELECT TRACK):
+Pick a track from the main menu (SELECT TRACK). Every track is its own world:
 
-| Track             | Character                              |
-|-------------------|----------------------------------------|
-| DOWNTOWN CIRCUIT  | Flat 2.5 km street circuit, technical  |
-| RIDGELINE RUN     | Rolling hills (±9 m), fast sweepers    |
-| CANYON SPRINT     | Short 1.1 km mountain run, steep climbs and drops up to ~11% grade |
+| Track             | Environment | Character |
+|-------------------|-------------|-----------|
+| DOWNTOWN CIRCUIT  | City dusk — warm haze, lit towers, streetlamps | Flat 2.4 km, technical |
+| RIDGELINE RUN     | Alpine morning — crisp blue sky, lush pines | Rolling ±9 m hills, sweepers |
+| CANYON SPRINT     | Desert sunset — orange haze, cacti & rocks | 1 km mountain run, ~10% grades |
+| GLACIER RUN       | Snowfield noon — white terrain, snow-capped pines | 1.6 km wide sweepers, ±6 m |
+| NEON DISTRICT     | Midnight city — starfield, moonlight, glowing windows | 0.9 km tight sprint, flat |
 
-Hilly tracks carry real elevation: the road, curbs, barriers, gantry, and
-streetlights all follow the spline height, embankment skirts ground the road,
-the camera rides the terrain, car meshes pitch with the gradient, and gravity
-along the slope slows climbs and speeds up descents.
+Each environment carries its own sky gradient, sun/moon glow, light colors,
+fog, exposure, terrain palette and hill character. Hilly tracks carry real
+elevation: road, curbs, barriers, gantry and streetlights follow the spline
+height, the terrain hugs the roadbed, the camera rides it, car meshes pitch
+with the gradient, and gravity along the slope slows climbs and speeds up
+descents.
 
 ## Features
 

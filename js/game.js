@@ -82,6 +82,7 @@ class Game {
   _buildLights() {
     const hemi = new THREE.HemisphereLight(0x8fa8d8, 0x1a2028, 0.75);
     this.scene.add(hemi);
+    this.hemi = hemi;
 
     const sun = new THREE.DirectionalLight(0xffc07a, 1.35);
     sun.castShadow = true;
@@ -93,42 +94,84 @@ class Game {
     this.scene.add(sun);
     this.scene.add(sun.target);
     this.sun = sun;
+    this.sunOffset = new THREE.Vector3(90, 130, 50); // env-overridden follow offset
   }
 
   _buildSky() {
     const c = document.createElement("canvas");
     c.width = 16; c.height = 256;
-    const g = c.getContext("2d");
-    const grad = g.createLinearGradient(0, 0, 0, 256);
-    grad.addColorStop(0.0, "#0a1130");
-    grad.addColorStop(0.45, "#27407c");
-    grad.addColorStop(0.72, "#c85a3a");
-    grad.addColorStop(0.85, "#ff9d4d");
-    grad.addColorStop(1.0, "#ffc880");
-    g.fillStyle = grad;
-    g.fillRect(0, 0, 16, 256);
+    this._skyCanvas = c;
+    this._skyCtx = c.getContext("2d");
     const tex = new THREE.CanvasTexture(c);
+    this._skyTex = tex;
     const skyGeo = new THREE.SphereGeometry(1600, 24, 16);
     const skyMat = new THREE.MeshBasicMaterial({ map: tex, side: THREE.BackSide, fog: false });
     this.sky = new THREE.Mesh(skyGeo, skyMat);
     this.scene.add(this.sky);
 
-    // low sun glow sprite
+    // sun / moon glow sprite (colors repainted per environment)
     const sc = document.createElement("canvas");
     sc.width = sc.height = 128;
-    const sg = sc.getContext("2d");
-    const rg = sg.createRadialGradient(64, 64, 4, 64, 64, 64);
-    rg.addColorStop(0, "rgba(255,230,180,1)");
-    rg.addColorStop(0.3, "rgba(255,170,90,0.55)");
-    rg.addColorStop(1, "rgba(255,150,60,0)");
-    sg.fillStyle = rg;
-    sg.fillRect(0, 0, 128, 128);
+    this._sunCanvas = sc;
     const sprite = new THREE.Sprite(new THREE.SpriteMaterial({
       map: new THREE.CanvasTexture(sc), fog: false, depthWrite: false,
     }));
     sprite.scale.set(700, 700, 1);
     sprite.position.set(900, 120, 700);
     this.scene.add(sprite);
+    this.sunSprite = sprite;
+
+    // default: downtown dusk until a track environment is applied
+    this._applyEnvironment(TRACKS.downtown.env);
+  }
+
+  /* repaint sky gradient, glow sprite, fog and lights for a track's mood */
+  _applyEnvironment(env) {
+    const e = env || {};
+    // --- sky gradient ---
+    const g = this._skyCtx;
+    const grad = g.createLinearGradient(0, 0, 0, 256);
+    for (const [t, col] of (e.skyStops || [[0, "#0a1130"], [1, "#27407c"]])) grad.addColorStop(t, col);
+    g.fillStyle = grad;
+    g.fillRect(0, 0, 16, 256);
+    if (e.stars) {
+      for (let i = 0; i < 140; i++) {
+        const y = Math.random() * Math.random() * 140;   // denser near zenith
+        g.fillStyle = `rgba(255,255,255,${0.25 + Math.random() * 0.7})`;
+        g.fillRect(Math.random() * 16, y, y < 60 ? 2 : 1, y < 60 ? 2 : 1);
+      }
+    }
+    this._skyTex.needsUpdate = true;
+
+    // --- sun / moon glow sprite ---
+    const sg = this._sunCanvas.getContext("2d");
+    sg.clearRect(0, 0, 128, 128);
+    const cols = e.sunColors || ["rgba(255,230,180,1)", "rgba(255,170,90,0.55)", "rgba(255,150,60,0)"];
+    const rg = sg.createRadialGradient(64, 64, 4, 64, 64, 64);
+    rg.addColorStop(0, cols[0]); rg.addColorStop(0.3, cols[1]); rg.addColorStop(1, cols[2]);
+    sg.fillStyle = rg;
+    sg.fillRect(0, 0, 128, 128);
+    this.sunSprite.material.map.needsUpdate = true;
+    const dir = e.sunDir || [900, 120, 700];
+    const len = Math.hypot(dir[0], dir[1], dir[2]) || 1;
+    this.sunSprite.position.set(dir[0] / len * 1300, dir[1] / len * 1300, dir[2] / len * 1300);
+    const sscale = e.sunScale || 700;
+    this.sunSprite.scale.set(sscale, sscale, 1);
+
+    // --- lights ---
+    this.hemi.color.setHex(e.hemiSky !== undefined ? e.hemiSky : 0x8fa8d8);
+    this.hemi.groundColor.setHex(e.hemiGround !== undefined ? e.hemiGround : 0x1a2028);
+    this.hemi.intensity = e.hemiInt !== undefined ? e.hemiInt : 0.75;
+    this.sun.color.setHex(e.sunColor !== undefined ? e.sunColor : 0xffc07a);
+    this.sun.intensity = e.sunIntensity !== undefined ? e.sunIntensity : 1.35;
+    const sp = e.sunPos || [90, 130, 50];
+    this.sunOffset.set(sp[0], sp[1], sp[2]);
+
+    // --- atmosphere ---
+    this.scene.fog.color.setHex(e.fogColor !== undefined ? e.fogColor : 0x2a3550);
+    this.scene.fog.near = e.fogNear !== undefined ? e.fogNear : 180;
+    this.scene.fog.far = e.fogFar !== undefined ? e.fogFar : 750;
+    this.renderer.toneMappingExposure = e.exposure !== undefined ? e.exposure : 1.15;
   }
 
   /* ================= race lifecycle ================= */
@@ -137,6 +180,7 @@ class Game {
     const def = TRACKS[key] || TRACKS.downtown;
     if (this.track) this.scene.remove(this.track.group);
     this.track = new Track(this.scene, def);
+    this._applyEnvironment(def.env);
     this.trackKey = def.key;
   }
 
@@ -638,8 +682,10 @@ class Game {
   _updateSun() {
     const p = this.player;
     const cx = p ? p.car.x : 0, cz = p ? p.car.z : 0;
-    this.sun.position.set(cx + 90, 130, cz + 50);
-    this.sun.target.position.set(cx, 0, cz);
+    const ry = p && p.roadY !== undefined ? p.roadY : 0;
+    const so = this.sunOffset || { x: 90, y: 130, z: 50 };
+    this.sun.position.set(cx + so.x, ry + so.y, cz + so.z);
+    this.sun.target.position.set(cx, ry, cz);
     this.sun.target.updateMatrixWorld();
   }
 

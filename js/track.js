@@ -10,6 +10,7 @@ class Track {
     this.scene = scene;
     this.key = opts.key || "downtown";
     this.name = opts.name || "DOWNTOWN CIRCUIT";
+    this.env = opts.env || {};
     this.width = opts.width || 14;          // road half-width * 2
     this.halfW = this.width / 2;
     this.barrierDist = this.halfW + 1.2;    // distance of barriers from center
@@ -270,7 +271,10 @@ class Track {
     geo.setAttribute("position", new THREE.Float32BufferAttribute(positions, 3));
     geo.setIndex(indices);
     geo.computeVertexNormals();
-    const mat = new THREE.MeshStandardMaterial({ color: 0x22381f, roughness: 1 });
+    const mat = new THREE.MeshStandardMaterial({
+      color: this.env.terrainColor !== undefined ? this.env.terrainColor : 0x22381f,
+      roughness: 1,
+    });
     const terrain = new THREE.Mesh(geo, mat);
     terrain.receiveShadow = true;
     this.group.add(terrain);
@@ -288,10 +292,12 @@ class Track {
 
   /* smooth procedural hills for the away-from-road terrain */
   _hillNoise(x, z) {
+    const amp = this.env.hillAmp !== undefined ? this.env.hillAmp : 1;
+    const fr = this.env.hillFreq !== undefined ? this.env.hillFreq : 1;
     return 2.8
-      + 1.5 * Math.sin(x * 0.012 + 1.3) * Math.cos(z * 0.010 + 0.7)
-      + 1.1 * Math.sin(x * 0.021 + z * 0.017 + 2.1)
-      + 0.8 * Math.cos(x * 0.007 - z * 0.008 + 0.4);
+      + amp * (1.5 * Math.sin(x * 0.012 * fr + 1.3) * Math.cos(z * 0.010 * fr + 0.7)
+             + 1.1 * Math.sin(x * 0.021 * fr + z * 0.017 * fr + 2.1)
+             + 0.8 * Math.cos(x * 0.007 * fr - z * 0.008 * fr + 0.4));
   }
 
   _makeRoadTexture() {
@@ -417,101 +423,224 @@ class Track {
     this.group.add(beam);
   }
 
-  /* ---------- scenery: trees, buildings, streetlights ---------- */
+  /* ---------- scenery: flora / buildings / streetlights ----------
+   * Everything is driven by this.env so each track gets its own world:
+   *   env.flora = null | { type:"pine"|"snowpine"|"cactus"|"rock"|"desert",
+   *                        density, color, trunk }
+   *   env.city  = null | { glow }          (window-lit buildings)
+   *   env.lamps = null | { every, color }  (streetlight spacing/color) */
   _buildScenery() {
     const N = this.samples.length;
+    const env = this.env;
 
-    // trees (instanced: trunk + canopy)
-    const treePos = [];
-    for (let i = 0; i < N; i += 22) {
-      const s = this.samples[i];
-      for (const side of [1, -1]) {
-        if (Math.random() < 0.55) {
-          const d = this.barrierDist + 6 + Math.random() * 26;
-          treePos.push({ x: s.pos.x + s.nx * side * d, z: s.pos.z + s.nz * side * d, s: 0.8 + Math.random() * 0.9 });
+    /* ----- flora ----- */
+    const flora = env.flora;
+    if (flora && flora.type) {
+      const stride = Math.max(8, Math.round(22 / (flora.density || 1)));
+      const spots = [];
+      for (let i = 0; i < N; i += stride) {
+        const s = this.samples[i];
+        for (const side of [1, -1]) {
+          if (Math.random() < 0.55) {
+            const d = this.barrierDist + 6 + Math.random() * 26;
+            spots.push({
+              x: s.pos.x + s.nx * side * d,
+              z: s.pos.z + s.nz * side * d,
+              s: 0.8 + Math.random() * 0.9,
+              kind: flora.type === "desert" ? (Math.random() < 0.5 ? "rock" : "cactus") : flora.type,
+            });
+          }
+        }
+      }
+
+      const dummy = new THREE.Object3D();
+      const col = new THREE.Color();
+      const gy = (p) => this._terrainHeight(p.x, p.z);
+
+      if (flora.type === "pine" || flora.type === "snowpine") {
+        const trunkMat = new THREE.MeshStandardMaterial({ color: flora.trunk || 0x5a4632, roughness: 1 });
+        const canMat = new THREE.MeshStandardMaterial({ color: flora.color || 0x2e6b34, roughness: 1 });
+        const trunkGeo = new THREE.CylinderGeometry(0.22, 0.34, 2.4, 6);
+        const canopyGeo = new THREE.ConeGeometry(1.9, 4.6, 7);
+        const trunks = new THREE.InstancedMesh(trunkGeo, trunkMat, spots.length);
+        const canopies = new THREE.InstancedMesh(canopyGeo, canMat, spots.length);
+        let caps = null, capGeo = null;
+        if (flora.type === "snowpine") {
+          capGeo = new THREE.ConeGeometry(0.95, 1.7, 7);
+          caps = new THREE.InstancedMesh(capGeo, new THREE.MeshStandardMaterial({ color: 0xf2f7fb, roughness: 0.95 }), spots.length);
+        }
+        spots.forEach((p, i) => {
+          const yBase = gy(p);
+          dummy.position.set(p.x, yBase + 1.2 * p.s, p.z);
+          dummy.scale.setScalar(p.s);
+          dummy.rotation.set(0, Math.random() * 6.28, 0);
+          dummy.updateMatrix();
+          trunks.setMatrixAt(i, dummy.matrix);
+          dummy.position.set(p.x, yBase + 4.4 * p.s, p.z);
+          dummy.updateMatrix();
+          canopies.setMatrixAt(i, dummy.matrix);
+          if (caps) {
+            dummy.position.set(p.x, yBase + 5.9 * p.s, p.z);
+            dummy.updateMatrix();
+            caps.setMatrixAt(i, dummy.matrix);
+          }
+        });
+        trunks.castShadow = canopies.castShadow = true;
+        this.group.add(trunks, canopies);
+        if (caps) caps.castShadow = true;
+        if (caps) this.group.add(caps);
+
+      } else if (flora.type === "cactus") {
+        this._scatterCacti(spots, dummy, col, flora);
+
+      } else if (flora.type === "rock") {
+        this._scatterRocks(spots, dummy, col, flora);
+
+      } else if (flora.type === "desert") {
+        const cacti = spots.filter(p => p.kind === "cactus");
+        const rocks = spots.filter(p => p.kind === "rock");
+        this._scatterCacti(cacti, dummy, col, flora);
+        this._scatterRocks(rocks, dummy, col, flora);
+      }
+    }
+
+    /* ----- city buildings with window glow ----- */
+    const city = env.city;
+    if (city) {
+      const bGeo = new THREE.BoxGeometry(1, 1, 1);
+      const winTex = this._makeWindowTexture();
+      const bMat = new THREE.MeshStandardMaterial({
+        color: 0x14181f, roughness: 0.85,
+        emissive: 0xffffff, emissiveMap: winTex, emissiveIntensity: city.glow !== undefined ? city.glow : 0.35,
+      });
+      const buildings = [];
+      for (let i = 0; i < N; i += 30) {
+        const s = this.samples[i];
+        if (Math.random() < 0.4) {
+          const side = Math.random() < 0.5 ? 1 : -1;
+          const d = this.barrierDist + 18 + Math.random() * 30;
+          const w = 8 + Math.random() * 14;
+          const h = 10 + Math.random() * 42;
+          buildings.push({ x: s.pos.x + s.nx * side * d, z: s.pos.z + s.nz * side * d, w, h, d: w, hue: Math.random() });
+        }
+      }
+      const bMesh = new THREE.InstancedMesh(bGeo, bMat, buildings.length);
+      const dummy = new THREE.Object3D();
+      buildings.forEach((b, i) => {
+        const gy = this._terrainHeight(b.x, b.z);
+        dummy.position.set(b.x, gy + b.h / 2, b.z);
+        dummy.scale.set(b.w, b.h, b.d);
+        dummy.rotation.set(0, Math.random() * 0.4, 0);
+        dummy.updateMatrix();
+        bMesh.setMatrixAt(i, dummy.matrix);
+      });
+      bMesh.castShadow = true;
+      this.group.add(bMesh);
+    }
+
+    /* ----- streetlights ----- */
+    const lamps = env.lamps;
+    if (lamps) {
+      const poleGeo = new THREE.CylinderGeometry(0.09, 0.12, 5.4, 6);
+      const poleMat = new THREE.MeshStandardMaterial({ color: 0x3a3f48, metalness: 0.7, roughness: 0.4 });
+      const lampGeo = new THREE.SphereGeometry(0.28, 8, 8);
+      const lampMat = new THREE.MeshBasicMaterial({ color: lamps.color || 0xffe9b0 });
+      const every = lamps.every || 46;
+      const poles = [];
+      for (let i = 0; i < N; i += every) {
+        const s = this.samples[i];
+        const side = (i / every) % 2 === 0 ? 1 : -1;
+        poles.push({
+          x: s.pos.x + s.nx * side * (this.barrierDist + 2.2),
+          z: s.pos.z + s.nz * side * (this.barrierDist + 2.2),
+        });
+      }
+      const poleMesh = new THREE.InstancedMesh(poleGeo, poleMat, poles.length);
+      const lampMesh = new THREE.InstancedMesh(lampGeo, lampMat, poles.length);
+      const dummy = new THREE.Object3D();
+      poles.forEach((p, i) => {
+        const gy = this._terrainHeight(p.x, p.z);
+        dummy.scale.setScalar(1);
+        dummy.rotation.set(0, 0, 0);
+        dummy.position.set(p.x, gy + 2.7, p.z);
+        dummy.updateMatrix();
+        poleMesh.setMatrixAt(i, dummy.matrix);
+        dummy.position.set(p.x, gy + 5.5, p.z);
+        dummy.updateMatrix();
+        lampMesh.setMatrixAt(i, dummy.matrix);
+      });
+      this.group.add(poleMesh, lampMesh);
+    }
+  }
+
+  _scatterCacti(spots, dummy, col, flora) {
+    if (!spots.length) return;
+    const trunkMat = new THREE.MeshStandardMaterial({ color: flora.color || 0x5a7a3a, roughness: 0.85 });
+    const bodyGeo = new THREE.CylinderGeometry(0.20, 0.26, 1, 7);   // unit height, scaled
+    const armGeo = new THREE.CylinderGeometry(0.11, 0.13, 0.9, 6);
+    const bodies = new THREE.InstancedMesh(bodyGeo, trunkMat, spots.length);
+    const armsL = new THREE.InstancedMesh(armGeo, trunkMat, spots.length);
+    const armsR = new THREE.InstancedMesh(armGeo, trunkMat, spots.length);
+    spots.forEach((p, i) => {
+      const h = (1.9 + Math.random() * 1.3) * p.s;
+      const yBase = this._terrainHeight(p.x, p.z);
+      dummy.position.set(p.x, yBase + h / 2, p.z);
+      dummy.scale.set(p.s, h, p.s);
+      dummy.rotation.set(0, Math.random() * 6.28, 0);
+      dummy.updateMatrix();
+      bodies.setMatrixAt(i, dummy.matrix);
+      // two arms bending upward at mid height
+      const ay = yBase + h * 0.45, ao = 0.42 * p.s;
+      dummy.scale.set(p.s, 0.9 * p.s, p.s);
+      dummy.position.set(p.x - ao, ay + 0.35 * p.s, p.z);
+      dummy.rotation.set(0, 0, 0.5);
+      dummy.updateMatrix(); armsL.setMatrixAt(i, dummy.matrix);
+      dummy.position.set(p.x + ao, ay + 0.15 * p.s, p.z);
+      dummy.rotation.set(0, 0, -0.5);
+      dummy.updateMatrix(); armsR.setMatrixAt(i, dummy.matrix);
+    });
+    bodies.castShadow = true;
+    this.group.add(bodies, armsL, armsR);
+  }
+
+  _scatterRocks(spots, dummy, col, flora) {
+    if (!spots.length) return;
+    const mat = new THREE.MeshStandardMaterial({ color: flora.trunk || 0xa87d52, roughness: 1 });
+    const geo = new THREE.DodecahedronGeometry(1, 0);
+    const rocks = new THREE.InstancedMesh(geo, mat, spots.length);
+    spots.forEach((p, i) => {
+      const sc = (0.9 + Math.random() * 1.7) * p.s;
+      const yBase = this._terrainHeight(p.x, p.z);
+      dummy.position.set(p.x, yBase + sc * 0.35, p.z);
+      dummy.scale.set(sc, sc * 0.55, sc * (0.75 + Math.random() * 0.5));
+      dummy.rotation.set(Math.random() * 0.4, Math.random() * 6.28, Math.random() * 0.4);
+      dummy.updateMatrix();
+      rocks.setMatrixAt(i, dummy.matrix);
+    });
+    rocks.castShadow = true;
+    this.group.add(rocks);
+  }
+
+  /* window grid texture used as the emissive map on city buildings */
+  _makeWindowTexture() {
+    const c = document.createElement("canvas");
+    c.width = 64; c.height = 128;
+    const g = c.getContext("2d");
+    g.fillStyle = "#000000";
+    g.fillRect(0, 0, 64, 128);
+    const palette = ["#ffd9a0", "#fff3c8", "#9fd8ff", "#ff9fd0", "#b0ffd0"];
+    for (let wy = 6; wy < 124; wy += 10) {
+      for (let wx = 5; wx < 60; wx += 12) {
+        if (Math.random() < 0.42) {
+          g.fillStyle = palette[Math.random() * palette.length | 0];
+          g.globalAlpha = 0.5 + Math.random() * 0.5;
+          g.fillRect(wx, wy, 7, 5);
         }
       }
     }
-    const trunkGeo = new THREE.CylinderGeometry(0.22, 0.34, 2.4, 6);
-    const trunkMat = new THREE.MeshStandardMaterial({ color: 0x5a4632, roughness: 1 });
-    const canopyGeo = new THREE.ConeGeometry(1.9, 4.6, 7);
-    const canopyMat = new THREE.MeshStandardMaterial({ color: 0x2e6b34, roughness: 1 });
-    const trunks = new THREE.InstancedMesh(trunkGeo, trunkMat, treePos.length);
-    const canopies = new THREE.InstancedMesh(canopyGeo, canopyMat, treePos.length);
-    const dummy = new THREE.Object3D();
-    const col = new THREE.Color();
-    treePos.forEach((t, i) => {
-      const gy = this._terrainHeight(t.x, t.z);
-      dummy.position.set(t.x, gy + 1.2 * t.s, t.z);
-      dummy.scale.setScalar(t.s);
-      dummy.rotation.set(0, Math.random() * 6.28, 0);
-      dummy.updateMatrix();
-      trunks.setMatrixAt(i, dummy.matrix);
-      dummy.position.set(t.x, gy + (2.4 + 2.0) * t.s, t.z);
-      dummy.updateMatrix();
-      canopies.setMatrixAt(i, dummy.matrix);
-      canopies.setColorAt(i, col.setHSL(0.32 + Math.random() * 0.06, 0.5, 0.28 + Math.random() * 0.12));
-    });
-    trunks.castShadow = canopies.castShadow = true;
-    this.group.add(trunks, canopies);
-
-    // city buildings clustered near the first sector
-    const bGeo = new THREE.BoxGeometry(1, 1, 1);
-    const bMat = new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.85 });
-    const buildings = [];
-    for (let i = 0; i < N; i += 30) {
-      const s = this.samples[i];
-      if (Math.random() < 0.4) {
-        const side = Math.random() < 0.5 ? 1 : -1;
-        const d = this.barrierDist + 18 + Math.random() * 30;
-        const w = 8 + Math.random() * 14;
-        const h = 10 + Math.random() * 42;
-        buildings.push({ x: s.pos.x + s.nx * side * d, z: s.pos.z + s.nz * side * d, w, h, d: w, hue: Math.random() });
-      }
-    }
-    const bMesh = new THREE.InstancedMesh(bGeo, bMat, buildings.length);
-    buildings.forEach((b, i) => {
-      const gy = this._terrainHeight(b.x, b.z);
-      dummy.position.set(b.x, gy + b.h / 2, b.z);
-      dummy.scale.set(b.w, b.h, b.d);
-      dummy.rotation.set(0, Math.random() * 0.4, 0);
-      dummy.updateMatrix();
-      bMesh.setMatrixAt(i, dummy.matrix);
-      const l = 0.16 + b.hue * 0.2;
-      bMesh.setColorAt(i, col.setHSL(0.6, 0.12, l));
-    });
-    bMesh.castShadow = true;
-    this.group.add(bMesh);
-
-    // streetlights along the track
-    const poleGeo = new THREE.CylinderGeometry(0.09, 0.12, 5.4, 6);
-    const poleMat = new THREE.MeshStandardMaterial({ color: 0x3a3f48, metalness: 0.7, roughness: 0.4 });
-    const lampGeo = new THREE.SphereGeometry(0.28, 8, 8);
-    const lampMat = new THREE.MeshBasicMaterial({ color: 0xffe9b0 });
-    const poles = [];
-    for (let i = 0; i < N; i += 46) {
-      const s = this.samples[i];
-      const side = (i / 46) % 2 === 0 ? 1 : -1;
-      poles.push({
-        x: s.pos.x + s.nx * side * (this.barrierDist + 2.2),
-        z: s.pos.z + s.nz * side * (this.barrierDist + 2.2),
-        y: s.pos.y,
-      });
-    }
-    const poleMesh = new THREE.InstancedMesh(poleGeo, poleMat, poles.length);
-    const lampMesh = new THREE.InstancedMesh(lampGeo, lampMat, poles.length);
-    poles.forEach((p, i) => {
-      const gy = this._terrainHeight(p.x, p.z);
-      dummy.position.set(p.x, gy + 2.7, p.z);
-      dummy.scale.setScalar(1);
-      dummy.rotation.set(0, 0, 0);
-      dummy.updateMatrix();
-      poleMesh.setMatrixAt(i, dummy.matrix);
-      dummy.position.set(p.x, gy + 5.5, p.z);
-      dummy.updateMatrix();
-      lampMesh.setMatrixAt(i, dummy.matrix);
-    });
-    this.group.add(poleMesh, lampMesh);
+    g.globalAlpha = 1;
+    const tex = new THREE.CanvasTexture(c);
+    return tex;
   }
 
   /* ---------- collision: keep a point inside the barriers ----------
@@ -558,9 +687,21 @@ const TRACKS = {
   downtown: {
     key: "downtown",
     name: "DOWNTOWN CIRCUIT",
-    desc: "Flat street circuit · hairpins & chicanes",
+    desc: "City dusk · hairpins & chicanes",
     width: 14,
-    meta: { length: "≈2.4 km", elev: "flat", style: "Technical" },
+    meta: { length: "≈2.4 km", elev: "flat", style: "City" },
+    env: {
+      skyStops: [[0, "#0a1130"], [0.45, "#27407c"], [0.72, "#c85a3a"], [0.85, "#ff9d4d"], [1, "#ffc880"]],
+      sunColors: ["rgba(255,230,180,1)", "rgba(255,170,90,0.55)", "rgba(255,150,60,0)"],
+      sunDir: [900, 120, 700], sunScale: 700,
+      sunColor: 0xffc07a, sunIntensity: 1.35, sunPos: [90, 130, 50],
+      hemiSky: 0x8fa8d8, hemiGround: 0x1a2028, hemiInt: 0.75,
+      fogColor: 0x2a3550, fogNear: 180, fogFar: 750, exposure: 1.15,
+      terrainColor: 0x22381f,
+      flora: { type: "pine", density: 0.9, color: 0x2e6b34, trunk: 0x5a4632 },
+      city: { glow: 0.4 },
+      lamps: { every: 46, color: 0xffe9b0 },
+    },
   },
   ridgeline: {
     key: "ridgeline",
@@ -573,11 +714,23 @@ const TRACKS = {
       1.35
     ),
     meta: { length: "≈1.8 km", elev: "±9 m", style: "Hilly" },
+    env: {
+      skyStops: [[0, "#3f97e0"], [0.5, "#8fd0ff"], [0.78, "#d6efff"], [1, "#f2fbff"]],
+      sunColors: ["rgba(255,255,245,1)", "rgba(255,240,190,0.5)", "rgba(255,220,150,0)"],
+      sunDir: [-500, 650, 400], sunScale: 420,
+      sunColor: 0xfff2d0, sunIntensity: 1.45, sunPos: [-250, 380, 200],
+      hemiSky: 0xbfe0ff, hemiGround: 0x2e5230, hemiInt: 0.9,
+      fogColor: 0xcfe6f5, fogNear: 240, fogFar: 880, exposure: 1.06,
+      terrainColor: 0x2f6b30, hillAmp: 1.35,
+      flora: { type: "pine", density: 2.4, color: 0x275e2d, trunk: 0x4a3826 },
+      city: null,
+      lamps: { every: 80, color: 0xe8f0ff },
+    },
   },
   canyon: {
     key: "canyon",
     name: "CANYON SPRINT",
-    desc: "Steep climbs · tight hairpins · big drops",
+    desc: "Desert sunset · steep climbs · big drops",
     width: 13,
     points: _polarLoop(
       [150, 95, 140, 88, 155, 105, 85, 132, 95, 148, 110, 128],
@@ -585,5 +738,66 @@ const TRACKS = {
       1.15
     ),
     meta: { length: "≈1.0 km", elev: "±9 m", style: "Mountain" },
+    env: {
+      skyStops: [[0, "#3a1f52"], [0.45, "#7a3b63"], [0.7, "#d95f35"], [0.85, "#ff9a3d"], [1, "#ffc873"]],
+      sunColors: ["rgba(255,240,200,1)", "rgba(255,150,60,0.6)", "rgba(255,120,40,0)"],
+      sunDir: [-800, 150, 350], sunScale: 850,
+      sunColor: 0xffa050, sunIntensity: 1.4, sunPos: [-350, 120, 180],
+      hemiSky: 0xd88a5a, hemiGround: 0x5a3020, hemiInt: 0.75,
+      fogColor: 0xd98e5f, fogNear: 150, fogFar: 640, exposure: 1.18,
+      terrainColor: 0xc2894f, hillAmp: 1.5, hillFreq: 0.8,
+      flora: { type: "desert", density: 1.2, color: 0x5a7a3a, trunk: 0xa87d52 },
+      city: null,
+      lamps: { every: 80, color: 0xffb46a },
+    },
+  },
+  glacier: {
+    key: "glacier",
+    name: "GLACIER RUN",
+    desc: "Frozen alpine pass · wide sweepers",
+    width: 15.5,
+    points: _polarLoop(
+      [185, 155, 178, 148, 172, 158, 182, 162],
+      (i, n) => 4 * Math.sin(4 * Math.PI * i / n) + 2 * Math.sin(2 * Math.PI * i / n),
+      1.28
+    ),
+    meta: { length: "≈1.6 km", elev: "±6 m", style: "Snow" },
+    env: {
+      skyStops: [[0, "#8fc7ff"], [0.5, "#c8e4ff"], [0.75, "#eef7ff"], [1, "#ffffff"]],
+      sunColors: ["rgba(255,255,255,1)", "rgba(220,240,255,0.5)", "rgba(200,230,255,0)"],
+      sunDir: [-700, 500, 300], sunScale: 500,
+      sunColor: 0xfff4e0, sunIntensity: 1.5, sunPos: [-300, 400, 150],
+      hemiSky: 0xcfe4ff, hemiGround: 0x8a95a5, hemiInt: 0.95,
+      fogColor: 0xdfeef8, fogNear: 220, fogFar: 820, exposure: 1.02,
+      terrainColor: 0xe3ecf2, hillAmp: 1.1,
+      flora: { type: "snowpine", density: 1.6, color: 0x2f4a3e, trunk: 0x4a3b2e },
+      city: null,
+      lamps: { every: 90, color: 0xd8e8ff },
+    },
+  },
+  neon: {
+    key: "neon",
+    name: "NEON DISTRICT",
+    desc: "Midnight sprint · tight city blocks",
+    width: 12.5,
+    points: _polarLoop(
+      [135, 100, 130, 88, 125, 98, 132, 92, 120, 100, 128, 95],
+      () => 0,
+      1.05
+    ),
+    meta: { length: "≈1.2 km", elev: "flat", style: "Night" },
+    env: {
+      skyStops: [[0, "#020308"], [0.55, "#0a1226"], [0.8, "#16223f"], [1, "#232f52"]],
+      stars: true,
+      sunColors: ["rgba(220,230,255,1)", "rgba(150,170,230,0.4)", "rgba(120,150,220,0)"],
+      sunDir: [600, 700, -200], sunScale: 260,
+      sunColor: 0x8fa3d8, sunIntensity: 0.55, sunPos: [250, 350, -80],
+      hemiSky: 0x2a3a66, hemiGround: 0x0a0c14, hemiInt: 0.55,
+      fogColor: 0x0a0f1e, fogNear: 110, fogFar: 520, exposure: 1.28,
+      terrainColor: 0x151a20, hillAmp: 0.25,
+      flora: null,
+      city: { glow: 1.35 },
+      lamps: { every: 26, color: 0xbfd8ff },
+    },
   },
 };

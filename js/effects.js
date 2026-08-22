@@ -28,51 +28,35 @@ function extrudeProfile(points, depth, bevel, mat) {
   return mesh;
 }
 
-/* ---------- car mesh ---------- */
+/* ---------- car mesh ----------
+ * Three genuinely different body designs, selected by spec.design:
+ *   brute — FALCON GT: long-hood muscle coupe, ducktail, quad lamps
+ *   hyper — VIPER X:   low wedge supercar, teardrop canopy, big wing
+ *   hatch — KITSUNE RS: cab-forward drift hatch, flares, roof fins
+ * Shared contract: userData.wheels (4 groups; children[0]=spinner,
+ * children[1]=brake disc), userData.tailMat, userData.spec.          */
 function buildCarMesh(spec) {
   const g = new THREE.Group();
-  const body = new THREE.Color(spec.color);
-  const dark = new THREE.Color(spec.accent);
-
-  const paintMat = new THREE.MeshStandardMaterial({ color: body, roughness: 0.22, metalness: 0.7 });
-  const darkMat  = new THREE.MeshStandardMaterial({ color: dark, roughness: 0.55, metalness: 0.35 });
+  const paintMat = new THREE.MeshStandardMaterial({ color: new THREE.Color(spec.color), roughness: 0.22, metalness: 0.7 });
+  const darkMat  = new THREE.MeshStandardMaterial({ color: new THREE.Color(spec.accent), roughness: 0.55, metalness: 0.35 });
   const glassMat = new THREE.MeshStandardMaterial({ color: 0x0d1a28, roughness: 0.05, metalness: 0.95 });
   const chromeMat = new THREE.MeshStandardMaterial({ color: 0xc8ccd4, roughness: 0.25, metalness: 0.95 });
 
   // axle positions: spec stores cgFront as a fraction of the wheelbase
   const cgToFront = spec.wheelbase * spec.cgFront;
   const cgToRear = spec.wheelbase - cgToFront;
+  const ctx = { paintMat, darkMat, glassMat, chromeMat, cgToFront, cgToRear };
 
-  /* ---- main body: sculpted side profile, extruded across the width ---- */
-  const hullProfile = [
-    [ 2.30, 0.30],  // front lower lip
-    [ 2.44, 0.44],  // nose tip
-    [ 2.05, 0.56],  // hood leading edge
-    [ 0.85, 0.66],  // hood
-    [ 0.30, 0.78],  // cowl / beltline peak
-    [-1.15, 0.80],  // rear deck
-    [-2.05, 0.86],  // ducktail kick
-    [-2.32, 0.62],  // tail face
-    [-2.30, 0.30],  // rear lower
-  ];
-  g.add(extrudeProfile(hullProfile, 1.42, 0.17, paintMat));
-
-  /* ---- greenhouse: fastback glass canopy ---- */
-  const canopyProfile = [
-    [ 0.78, 0.74],  // windshield base
-    [ 0.22, 1.20],  // roof front
-    [-0.62, 1.21],  // roof rear
-    [-1.62, 0.80],  // fastback tail
-  ];
-  g.add(extrudeProfile(canopyProfile, 1.02, 0.10, glassMat));
+  if (spec.design === "hyper") _carBodyViper(g, spec, ctx);
+  else if (spec.design === "hatch") _carBodyKitsune(g, spec, ctx);
+  else _carBodyFalcon(g, spec, ctx);
 
   /* ---- fender arches over each wheel ---- */
   const archR = spec.wheelRadius + 0.16;
   const archGeo = new THREE.TorusGeometry(archR, 0.10, 6, 14, Math.PI);
-  archGeo.rotateY(Math.PI / 2); // arc plane → ZY (length × height)
-  const archPositions = [cgToFront, -cgToRear];
+  archGeo.rotateY(Math.PI / 2);
   const archX = spec.trackWidth / 2;
-  for (const az of archPositions) {
+  for (const az of [cgToFront, -cgToRear]) {
     for (const sx of [-archX, archX]) {
       const arch = new THREE.Mesh(archGeo, paintMat);
       arch.position.set(sx, spec.wheelRadius * 0.95, az);
@@ -82,79 +66,7 @@ function buildCarMesh(spec) {
     }
   }
 
-  /* ---- side skirts ---- */
-  for (const sx of [-0.90, 0.90]) {
-    const skirt = new THREE.Mesh(new THREE.BoxGeometry(0.14, 0.18, 2.6), darkMat);
-    skirt.position.set(sx, 0.24, -0.05);
-    g.add(skirt);
-  }
-
-  /* ---- front splitter + intake ---- */
-  const splitter = new THREE.Mesh(new THREE.BoxGeometry(1.82, 0.10, 0.55), darkMat);
-  splitter.position.set(0, 0.18, 2.50);
-  g.add(splitter);
-  const intake = new THREE.Mesh(new THREE.BoxGeometry(1.15, 0.20, 0.12), darkMat);
-  intake.position.set(0, 0.42, 2.53);
-  g.add(intake);
-
-  /* ---- hood vents ---- */
-  for (const sx of [-0.34, 0.34]) {
-    const vent = new THREE.Mesh(new THREE.BoxGeometry(0.30, 0.05, 0.62), darkMat);
-    vent.position.set(sx, 0.78, 1.35);
-    vent.rotation.x = -0.06;
-    g.add(vent);
-  }
-
-  /* ---- side mirrors ---- */
-  for (const sx of [-0.86, 0.86]) {
-    const stalk = new THREE.Mesh(new THREE.BoxGeometry(0.16, 0.05, 0.05), darkMat);
-    stalk.position.set(sx, 0.86, 0.62);
-    g.add(stalk);
-    const mir = new THREE.Mesh(new THREE.BoxGeometry(0.09, 0.11, 0.18), paintMat);
-    mir.position.set(sx + Math.sign(sx) * 0.10, 0.90, 0.60);
-    g.add(mir);
-  }
-
-  /* ---- rear wing on struts ---- */
-  const wing = new THREE.Mesh(new THREE.BoxGeometry(1.78, 0.06, 0.44), darkMat);
-  wing.position.set(0, 1.12, -2.18);
-  wing.rotation.x = -0.10;
-  wing.castShadow = true;
-  g.add(wing);
-  for (const sx of [-0.62, 0.62]) {
-    const strut = new THREE.Mesh(new THREE.BoxGeometry(0.07, 0.30, 0.12), darkMat);
-    strut.position.set(sx, 0.95, -2.14);
-    g.add(strut);
-  }
-
-  /* ---- rear diffuser + exhausts ---- */
-  const diffuser = new THREE.Mesh(new THREE.BoxGeometry(1.6, 0.16, 0.4), darkMat);
-  diffuser.position.set(0, 0.22, -2.42);
-  g.add(diffuser);
-  for (const sx of [-0.42, 0.42]) {
-    const exhaust = new THREE.Mesh(new THREE.CylinderGeometry(0.075, 0.09, 0.22, 10), chromeMat);
-    exhaust.rotation.x = Math.PI / 2;
-    exhaust.position.set(sx, 0.36, -2.48);
-    g.add(exhaust);
-  }
-
-  /* ---- headlights (angled slits) ---- */
-  const lightMat = new THREE.MeshBasicMaterial({ color: 0xfff6d8 });
-  for (const sx of [-0.58, 0.58]) {
-    const hl = new THREE.Mesh(new THREE.BoxGeometry(0.44, 0.09, 0.10), lightMat);
-    hl.position.set(sx, 0.50, 2.53);
-    hl.rotation.x = 0.18;
-    g.add(hl);
-  }
-
-  /* ---- full-width tail light bar (brake glow) ---- */
-  const tailMat = new THREE.MeshBasicMaterial({ color: 0x550000 });
-  const tailBar = new THREE.Mesh(new THREE.BoxGeometry(1.55, 0.09, 0.06), tailMat);
-  tailBar.position.set(0, 0.66, -2.47);
-  g.add(tailBar);
-  g.userData.tailMat = tailMat;
-
-  /* ---- wheels: tire + spoked rim + brake disc ---- */
+  /* ---- wheels: tire + rim + brake disc ---- */
   const r = spec.wheelRadius;
   const tireMat = new THREE.MeshStandardMaterial({ color: 0x101010, roughness: 0.92 });
   const rimMat  = new THREE.MeshStandardMaterial({ color: 0xd6dae2, roughness: 0.2, metalness: 0.9 });
@@ -179,8 +91,6 @@ function buildCarMesh(spec) {
   ];
   for (const p of positions) {
     const wg = new THREE.Group();
-
-    // children[0]: rotating assembly (tire + rim + spokes + hub)
     const spin = new THREE.Group();
     const tire = new THREE.Mesh(tireGeo, tireMat);
     tire.castShadow = true;
@@ -194,10 +104,7 @@ function buildCarMesh(spec) {
       spin.add(spoke);
     }
     spin.add(new THREE.Mesh(hubGeo, rimMat));
-
-    // children[1]: brake disc (also spins)
     const disc = new THREE.Mesh(discGeo, discMat);
-
     wg.add(spin, disc);
     wg.position.set(p[0], p[1], p[2]);
     g.add(wg);
@@ -206,6 +113,221 @@ function buildCarMesh(spec) {
   g.userData.wheels = wheels;
   g.userData.spec = spec;
   return g;
+}
+
+function _box(g, w, h, d, mat, x, y, z, rx) {
+  const m = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), mat);
+  m.position.set(x, y, z);
+  if (rx) m.rotation.x = rx;
+  m.castShadow = true;
+  g.add(m);
+  return m;
+}
+
+/* ================= FALCON GT — brute muscle coupe ================= */
+function _carBodyFalcon(g, spec, ctx) {
+  const { paintMat, darkMat, glassMat, chromeMat } = ctx;
+
+  // long hood, set-back cabin, wide haunches, kicked ducktail
+  g.add(extrudeProfile([
+    [ 2.34, 0.30], [ 2.50, 0.46], [ 2.10, 0.60], [ 0.95, 0.72],
+    [ 0.35, 0.84], [-1.05, 0.88], [-1.95, 1.00], [-2.28, 0.92],
+    [-2.42, 0.62], [-2.36, 0.30],
+  ], 1.46, 0.17, paintMat));
+
+  g.add(extrudeProfile([
+    [ 0.55, 0.80], [ 0.05, 1.26], [-0.75, 1.27], [-1.70, 0.86],
+  ], 1.04, 0.10, glassMat));
+
+  // hood scoop
+  _box(g, 0.52, 0.10, 0.70, darkMat, 0, 0.90, 1.15);
+  // twin racing stripes down hood + deck
+  for (const sx of [-0.20, 0.20]) {
+    _box(g, 0.14, 0.03, 1.55, darkMat, sx, 0.845, 1.25).rotation.x = -0.075;
+    _box(g, 0.14, 0.03, 1.10, darkMat, sx, 0.985, -1.45).rotation.x = -0.065;
+  }
+  // side skirts + side-exit exhaust pipes (3 per side)
+  for (const sx of [-0.92, 0.92]) {
+    _box(g, 0.14, 0.18, 2.6, darkMat, sx, 0.24, -0.05);
+    for (let i = 0; i < 3; i++) {
+      const pipe = new THREE.Mesh(new THREE.CylinderGeometry(0.055, 0.055, 0.34, 8), chromeMat);
+      pipe.rotation.x = Math.PI / 2;
+      pipe.position.set(sx, 0.30, -0.4 - i * 0.42);
+      g.add(pipe);
+    }
+  }
+  // front splitter + mesh-grille bar
+  _box(g, 1.86, 0.10, 0.55, darkMat, 0, 0.18, 2.48);
+  _box(g, 1.30, 0.24, 0.10, darkMat, 0, 0.40, 2.54);
+  // quad round headlights (two per side)
+  const lightMat = new THREE.MeshBasicMaterial({ color: 0xfff6d8 });
+  for (const sx of [-0.60, -0.34, 0.34, 0.60]) {
+    const lamp = new THREE.Mesh(new THREE.CylinderGeometry(0.085, 0.085, 0.08, 12), lightMat);
+    lamp.rotation.x = Math.PI / 2;
+    lamp.position.set(sx, 0.56, 2.56);
+    g.add(lamp);
+  }
+  // ducktail lip spoiler
+  _box(g, 1.66, 0.06, 0.30, darkMat, 0, 1.06, -2.22, 0.28);
+  // rear diffuser + dual round exhausts
+  _box(g, 1.6, 0.16, 0.4, darkMat, 0, 0.22, -2.42);
+  for (const sx of [-0.42, 0.42]) {
+    const exhaust = new THREE.Mesh(new THREE.CylinderGeometry(0.075, 0.09, 0.22, 10), chromeMat);
+    exhaust.rotation.x = Math.PI / 2;
+    exhaust.position.set(sx, 0.36, -2.48);
+    g.add(exhaust);
+  }
+  // mirrors
+  _mirrorPair(g, paintMat, darkMat, 0.86, 0.88, 0.55);
+  // tail light bar
+  const tailMat = new THREE.MeshBasicMaterial({ color: 0x550000 });
+  _box(g, 1.58, 0.09, 0.06, tailMat, 0, 0.72, -2.47);
+  g.userData.tailMat = tailMat;
+}
+
+/* ================= VIPER X — hyper wedge ================= */
+function _carBodyViper(g, spec, ctx) {
+  const { paintMat, darkMat, glassMat, chromeMat } = ctx;
+
+  // knife-edge nose rising into high haunches, long tapering tail
+  g.add(extrudeProfile([
+    [ 2.55, 0.18], [ 2.66, 0.34], [ 2.30, 0.44], [ 1.20, 0.52],
+    [ 0.45, 0.74], [-0.90, 0.78], [-1.85, 0.82], [-2.30, 0.86],
+    [-2.48, 0.56], [-2.40, 0.24],
+  ], 1.38, 0.15, paintMat));
+
+  // teardrop canopy pushed far forward
+  g.add(extrudeProfile([
+    [ 0.95, 0.68], [ 0.35, 1.06], [-0.35, 1.08], [-1.30, 0.76],
+  ], 0.96, 0.09, glassMat));
+
+  // shark fin on the deck
+  const fin = new THREE.Mesh(new THREE.BoxGeometry(0.05, 0.22, 0.9), paintMat);
+  fin.position.set(0, 0.94, -1.55);
+  fin.rotation.x = 0.18;
+  g.add(fin);
+
+  // side skirts, deep
+  for (const sx of [-0.88, 0.88]) _box(g, 0.13, 0.22, 2.7, darkMat, sx, 0.22, -0.05);
+
+  // front: ultra-low splitter with canards
+  _box(g, 1.80, 0.08, 0.62, darkMat, 0, 0.13, 2.58);
+  for (const sx of [-0.80, 0.80]) {
+    const canard = _box(g, 0.30, 0.04, 0.22, darkMat, sx, 0.30, 2.44);
+    canard.rotation.z = sx > 0 ? -0.35 : 0.35;
+  }
+
+  // angled LED slit headlights
+  const lightMat = new THREE.MeshBasicMaterial({ color: 0xeaf6ff });
+  for (const sx of [-0.55, 0.55]) {
+    const hl = new THREE.Mesh(new THREE.BoxGeometry(0.50, 0.055, 0.09), lightMat);
+    hl.position.set(sx, 0.42, 2.60);
+    hl.rotation.x = 0.30;
+    hl.rotation.y = sx > 0 ? -0.22 : 0.22;
+    g.add(hl);
+  }
+
+  // huge two-element rear wing on twin pylons + endplates
+  _box(g, 1.84, 0.05, 0.42, darkMat, 0, 1.30, -2.10, -0.16);
+  _box(g, 1.84, 0.05, 0.30, darkMat, 0, 1.18, -2.32, -0.30);
+  for (const sx of [-0.78, 0.78]) {
+    _box(g, 0.06, 0.26, 0.46, darkMat, sx, 1.24, -2.18);           // endplate
+    _box(g, 0.07, 0.42, 0.12, darkMat, sx * 0.55, 1.02, -2.12);    // pylon
+  }
+
+  // diffuser with vertical strakes + center cannon exhaust
+  _box(g, 1.62, 0.18, 0.44, darkMat, 0, 0.20, -2.46);
+  for (const sx of [-0.4, 0, 0.4]) _box(g, 0.04, 0.20, 0.42, darkMat, sx, 0.32, -2.44);
+  const cannon = new THREE.Mesh(new THREE.CylinderGeometry(0.11, 0.13, 0.26, 12), chromeMat);
+  cannon.rotation.x = Math.PI / 2;
+  cannon.position.set(0, 0.44, -2.52);
+  g.add(cannon);
+
+  // mirrors on slim stalks
+  _mirrorPair(g, paintMat, darkMat, 0.82, 0.80, 0.85);
+  // thin full-width tail light strip
+  const tailMat = new THREE.MeshBasicMaterial({ color: 0x550000 });
+  _box(g, 1.50, 0.05, 0.06, tailMat, 0, 0.74, -2.53);
+  g.userData.tailMat = tailMat;
+}
+
+/* ================= KITSUNE RS — drift hatch ================= */
+function _carBodyKitsune(g, spec, ctx) {
+  const { paintMat, darkMat, glassMat, chromeMat } = ctx;
+
+  // blunt upright nose, cab-forward windshield, tall hatch tail
+  g.add(extrudeProfile([
+    [ 1.95, 0.34], [ 2.12, 0.52], [ 1.75, 0.64], [ 0.80, 0.70],
+    [ 0.25, 0.82], [-0.90, 0.86], [-1.72, 1.02], [-2.00, 1.04],
+    [-2.14, 0.66], [-2.06, 0.32],
+  ], 1.36, 0.15, paintMat));
+
+  // fast-raked cab-forward canopy landing on the hatch
+  g.add(extrudeProfile([
+    [ 0.85, 0.76], [ 0.28, 1.26], [-0.55, 1.28], [-1.45, 1.06],
+  ], 1.00, 0.10, glassMat));
+
+  // boxy fender flares over all four corners
+  const fx = spec.trackWidth / 2 + 0.06;
+  for (const az of [ctx.cgToFront, -ctx.cgToRear]) {
+    for (const sx of [-fx, fx]) _box(g, 0.16, 0.20, 1.05, paintMat, sx, spec.wheelRadius + 0.18, az);
+  }
+
+  // three vortex fins on the roof tail
+  for (const sx of [-0.30, 0, 0.30]) {
+    const vf = new THREE.Mesh(new THREE.BoxGeometry(0.04, 0.14, 0.26), darkMat);
+    vf.position.set(sx, 1.34, -0.62);
+    vf.rotation.x = 0.5;
+    g.add(vf);
+  }
+  // high hatch roof spoiler
+  _box(g, 1.42, 0.06, 0.34, darkMat, 0, 1.38, -1.62, -0.22);
+
+  // side skirts + mud flaps behind wheels
+  for (const sx of [-0.86, 0.86]) {
+    _box(g, 0.13, 0.16, 2.3, darkMat, sx, 0.24, -0.05);
+    for (const az of [ctx.cgToFront - 0.65, -ctx.cgToRear - 0.65]) {
+      const flap = _box(g, 0.05, 0.16, 0.22, darkMat, sx, 0.22, az);
+      flap.rotation.x = 0.35;
+    }
+  }
+
+  // blocky front bumper w/ tow-eye notch + rectangular lamps & yellow fogs
+  _box(g, 1.74, 0.14, 0.40, darkMat, 0, 0.24, 2.30);
+  const lightMat = new THREE.MeshBasicMaterial({ color: 0xfff6d8 });
+  const fogMat = new THREE.MeshBasicMaterial({ color: 0xffd24a });
+  for (const sx of [-0.52, 0.52]) {
+    _box(g, 0.34, 0.11, 0.08, lightMat, sx, 0.58, 2.20);
+    _box(g, 0.16, 0.08, 0.07, fogMat, sx, 0.38, 2.26);
+  }
+  // single large offset exhaust
+  const exhaust = new THREE.Mesh(new THREE.CylinderGeometry(0.10, 0.12, 0.26, 12), chromeMat);
+  exhaust.rotation.x = Math.PI / 2;
+  exhaust.position.set(-0.55, 0.34, -2.20);
+  g.add(exhaust);
+
+  // roof antenna
+  const ant = new THREE.Mesh(new THREE.CylinderGeometry(0.015, 0.015, 0.34, 5), darkMat);
+  ant.position.set(0.30, 1.40, 0.05);
+  ant.rotation.x = -0.5;
+  g.add(ant);
+
+  _mirrorPair(g, paintMat, darkMat, 0.84, 0.94, 0.72);
+  // tall hatch tail light panel
+  const tailMat = new THREE.MeshBasicMaterial({ color: 0x550000 });
+  _box(g, 1.30, 0.16, 0.06, tailMat, 0, 0.88, -2.17);
+  g.userData.tailMat = tailMat;
+}
+
+function _mirrorPair(g, paintMat, darkMat, x, y, z) {
+  for (const sx of [-x, x]) {
+    const stalk = new THREE.Mesh(new THREE.BoxGeometry(0.16, 0.05, 0.05), darkMat);
+    stalk.position.set(sx, y, z);
+    g.add(stalk);
+    const mir = new THREE.Mesh(new THREE.BoxGeometry(0.09, 0.11, 0.18), paintMat);
+    mir.position.set(sx + Math.sign(sx) * 0.10, y + 0.04, z - 0.02);
+    g.add(mir);
+  }
 }
 
 /* ---------- pooled particle system ---------- */

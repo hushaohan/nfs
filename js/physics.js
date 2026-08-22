@@ -356,7 +356,7 @@ class CarPhysics {
  * ===================================================================== */
 const CAR_SPECS = {
   falcon: {
-    name: "FALCON GT", cls: "BALANCED · RWD",
+    name: "FALCON GT", cls: "BALANCED · RWD", design: "brute",
     color: 0xff3b30, accent: 0x1a1a1a,
     mass: 1450, inertia: 2350,
     wheelbase: 2.62, cgFront: 0.48, cgHeight: 0.52, trackWidth: 1.76, wheelRadius: 0.33,
@@ -373,7 +373,7 @@ const CAR_SPECS = {
     stats: { speed: 0.82, accel: 0.80, grip: 0.78, nitro: 0.75 },
   },
   viper: {
-    name: "VIPER X", cls: "TOP SPEED · AWD",
+    name: "VIPER X", cls: "TOP SPEED · AWD", design: "hyper",
     color: 0x00d4ff, accent: 0x0a0a12,
     mass: 1620, inertia: 2700,
     wheelbase: 2.70, cgFront: 0.50, cgHeight: 0.50, trackWidth: 1.84, wheelRadius: 0.34,
@@ -390,7 +390,7 @@ const CAR_SPECS = {
     stats: { speed: 0.95, accel: 0.84, grip: 0.72, nitro: 0.85 },
   },
   kitsune: {
-    name: "KITSUNE RS", cls: "HANDLING · RWD",
+    name: "KITSUNE RS", cls: "HANDLING · RWD", design: "hatch",
     color: 0xffb300, accent: 0x141414,
     mass: 1250, inertia: 1900,
     wheelbase: 2.48, cgFront: 0.46, cgHeight: 0.48, trackWidth: 1.72, wheelRadius: 0.32,
