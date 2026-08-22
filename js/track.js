@@ -175,6 +175,40 @@ class Track {
     const road = new THREE.Mesh(geo, mat);
     road.receiveShadow = true;
     this.group.add(road);
+
+    /* optional neon edge strips (night tracks): unlit glowing rails that
+     * trace the road so it reads clearly against a dark world */
+    const eg = this.env.roadEdgeGlow;
+    if (eg) {
+      const N3 = Math.ceil(N / 3);
+      const mkSide = (colorHex, sideSign) => {
+        const mesh = new THREE.InstancedMesh(
+          new THREE.BoxGeometry(1, 1, 1),
+          new THREE.MeshBasicMaterial({ color: colorHex }),
+          N3
+        );
+        const dummy = new THREE.Object3D();
+        let k = 0;
+        for (let i = 0; i < N; i += 3) {
+          const s = this.samples[i];
+          const next = this.samples[(i + 3) % N];
+          const segLen = s.pos.distanceTo(next.pos) * 1.12;
+          dummy.position.set(
+            s.pos.x + s.nx * sideSign * (this.halfW + 0.85),
+            s.pos.y + 0.10,
+            s.pos.z + s.nz * sideSign * (this.halfW + 0.85)
+          );
+          dummy.rotation.set(0, Math.atan2(next.pos.x - s.pos.x, next.pos.z - s.pos.z), 0);
+          dummy.scale.set(0.14, 0.05, segLen);
+          dummy.updateMatrix();
+          mesh.setMatrixAt(k++, dummy.matrix);
+        }
+        mesh.instanceMatrix.needsUpdate = true;
+        this.group.add(mesh);
+      };
+      mkSide(eg[0], 1);    // left edge
+      mkSide(eg[1], -1);   // right edge
+    }
   }
 
   /* ---------- embankment skirts: drop the road edges to the ground so
@@ -791,13 +825,14 @@ const TRACKS = {
       stars: true,
       sunColors: ["rgba(220,230,255,1)", "rgba(150,170,230,0.4)", "rgba(120,150,220,0)"],
       sunDir: [600, 700, -200], sunScale: 260,
-      sunColor: 0x8fa3d8, sunIntensity: 0.55, sunPos: [250, 350, -80],
-      hemiSky: 0x2a3a66, hemiGround: 0x0a0c14, hemiInt: 0.55,
-      fogColor: 0x0a0f1e, fogNear: 110, fogFar: 520, exposure: 1.28,
-      terrainColor: 0x151a20, hillAmp: 0.25,
+      sunColor: 0x93a9e8, sunIntensity: 1.05, sunPos: [250, 350, -80],
+      hemiSky: 0x3d5290, hemiGround: 0x10141f, hemiInt: 0.85,
+      fogColor: 0x101830, fogNear: 180, fogFar: 740, exposure: 1.42,
+      terrainColor: 0x1b2332, hillAmp: 0.25,
       flora: null,
       city: { glow: 1.35 },
-      lamps: { every: 26, color: 0xbfd8ff },
+      lamps: { every: 22, color: 0xbfd8ff },
+      roadEdgeGlow: [0x00e5ff, 0xff2fd6],
     },
   },
 };
