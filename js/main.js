@@ -170,6 +170,66 @@ function setupTouch() {
   });
   $("tc-reset").addEventListener("click", () => { game.audio.click(); game._resetPlayerToTrack(); });
 
+  /* ---- tilt (accelerometer) steering ---- */
+  let tiltOn = false;
+  let tiltBase = null;   // neutral angle captured on enable/recenter
+  const TILT_RANGE = 24; // degrees of tilt for full lock
+
+  function tiltAngle(e) {
+    // map the wheel-style tilt axis to the current screen orientation
+    const ang = (screen.orientation && typeof screen.orientation.angle === "number")
+      ? screen.orientation.angle
+      : (typeof window.orientation === "number" ? window.orientation : 0);
+    if (ang === 90) return e.beta === null ? null : -e.beta;
+    if (ang === 270 || ang === -90) return e.beta;
+    if (ang === 180) return e.gamma === null ? null : -e.gamma;
+    return e.gamma;   // portrait
+  }
+
+  window.addEventListener("deviceorientation", (e) => {
+    if (!tiltOn) return;
+    const v = tiltAngle(e);
+    if (v === null || v === undefined || Number.isNaN(v)) return;
+    if (tiltBase === null) tiltBase = v;
+    const d = v - tiltBase;
+    game.tiltSteer = Math.max(-1, Math.min(1, d / TILT_RANGE));
+  });
+
+  async function enableTilt() {
+    try {
+      // iOS 13+ requires an explicit user-gesture permission request
+      if (typeof DeviceOrientationEvent !== "undefined" &&
+          typeof DeviceOrientationEvent.requestPermission === "function") {
+        const res = await DeviceOrientationEvent.requestPermission();
+        if (res !== "granted") return false;
+      }
+      tiltOn = true;
+      tiltBase = null;          // calibrate neutral from the next reading
+      game.tiltSteer = 0;
+      ui.classList.add("tilt");
+      $("tc-tilt").classList.add("on");
+      $("tc-tilt").textContent = "TILT✓";
+      return true;
+    } catch (_) {
+      return false;
+    }
+  }
+
+  $("tc-tilt").addEventListener("click", async () => {
+    game.audio.init();
+    game.audio.click();
+    if (tiltOn) {
+      // tap again to disable… or recenter by toggling off+on
+      tiltOn = false;
+      game.tiltSteer = null;
+      ui.classList.remove("tilt");
+      $("tc-tilt").classList.remove("on");
+      $("tc-tilt").textContent = "TILT";
+    } else {
+      await enableTilt();
+    }
+  });
+
   // block iOS pinch-zoom during play
   document.addEventListener("gesturestart", (e) => e.preventDefault());
 }

@@ -21,6 +21,9 @@ class Game {
     this.autoBrake = false;
     // on-screen touch controls (set by main.js; merged into player input)
     this.touch = { left: false, right: false, gas: false, brake: false, nitro: false, handbrake: false };
+    // accelerometer steering: number in [-1, 1] while tilt mode is on,
+    // null when inactive — keys/buttons take priority over it
+    this.tiltSteer = null;
     this.cameraMode = 0;
     this.racers = [];          // { car: CarPhysics, mesh, ai: AIDriver|null, isPlayer, name, color, distSamples, prevIdx, lapDone, finishTime, hintIdx }
     this.player = null;
@@ -318,9 +321,15 @@ class Game {
     const t = this.touch || {};
     const throttle = (k["KeyW"] || k["ArrowUp"] || t.gas) ? 1 : 0;
     let brake = (k["KeyS"] || k["ArrowDown"] || t.brake) ? 1 : 0;
+    // steering priority: keyboard > touch buttons > tilt sensor (analog)
     let steer = 0;
-    if (k["KeyA"] || k["ArrowLeft"] || t.left) steer -= 1;
-    if (k["KeyD"] || k["ArrowRight"] || t.right) steer += 1;
+    const kSteer = ((k["KeyA"] || k["ArrowLeft"] || t.left) ? -1 : 0)
+                 + ((k["KeyD"] || k["ArrowRight"] || t.right) ? 1 : 0);
+    if (kSteer !== 0) {
+      steer += kSteer;
+    } else if (typeof this.tiltSteer === "number" && !Number.isNaN(this.tiltSteer)) {
+      steer += Math.max(-1, Math.min(1, this.tiltSteer));
+    }
     // auto-brake: releasing the throttle applies the brakes (toggle with B)
     if (this.autoBrake && throttle === 0 && brake === 0 && this.player) {
       const vx = this.player.car.vx;

@@ -310,13 +310,27 @@ kbd {
 #tc-nitro      { right: 30px;  bottom: 140px; }
 #tc-handbrake  { right: 136px; bottom: 122px; }
 
-/* pause / reset chips — top left, under the time panel */
+/* pause / reset / tilt chips — top left, under the time panel */
 .tbtn.chip {
   width: 44px; height: 44px; font-size: 15px;
   border-radius: 10px;
 }
 #tc-pause { top: 84px; left: 18px; }
 #tc-reset { top: 84px; left: 72px; }
+#tc-tilt  { top: 84px; left: 126px; font-size: 10px; letter-spacing: 1px; }
+.tbtn.chip.on { background: rgba(0,170,255,0.30); border-color: var(--accent2); color: #fff; }
+
+/* ---- tilt steering mode: no steer buttons, drift/nitro move bottom-left ---- */
+#touch-ui.tilt #tc-left-btn,
+#touch-ui.tilt #tc-right-btn { display: none; }
+#touch-ui.tilt #tc-handbrake {
+  left: 20px; right: auto; bottom: 30px; top: auto;
+  width: 76px; height: 76px;
+}
+#touch-ui.tilt #tc-nitro {
+  left: 108px; right: auto; bottom: 30px; top: auto;
+  width: 76px; height: 76px;
+}
 
 /* ============ Small screens / mobile ============ */
 @media (max-width: 980px) {
