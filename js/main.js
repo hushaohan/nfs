@@ -172,8 +172,10 @@ function setupTouch() {
 
   /* ---- tilt (accelerometer) steering ---- */
   let tiltOn = false;
-  let tiltBase = null;   // neutral angle captured on enable/recenter
-  const TILT_RANGE = 24; // degrees of tilt for full lock
+  let tiltBase = null;      // calibrated neutral angle
+  const TILT_RANGE = 24;    // degrees past the dead zone for full lock
+  const TILT_DEAD = 3;      // degrees of dead band around neutral (exact 0)
+  const CALIB_COUNT = 10;   // readings averaged for the initial neutral
 
   function tiltAngle(e) {
     // map the wheel-style tilt axis to the current screen orientation
@@ -186,13 +188,44 @@ function setupTouch() {
     return e.gamma;   // portrait
   }
 
+  let calibN = 0, calibSum = 0;
+
+  function resetTiltCalibration() {
+    calibN = 0;
+    calibSum = 0;
+    tiltBase = null;
+    game.tiltSteer = 0;
+  }
+
+  function tiltResponse(v) {
+    // signed response with a flat dead zone, then a linear ramp that
+    // reaches full lock at TILT_RANGE (no jump at the dead-zone edge)
+    const d = v - tiltBase;
+    const a = Math.abs(d);
+    if (a <= TILT_DEAD) {
+      // slow adaptive recentering: absorbs grip drift / sensor bias while
+      // you're rolling near-neutral, so the car stays genuinely straight
+      tiltBase += d * 0.008;
+      return 0;
+    }
+    const s = d > 0 ? 1 : -1;
+    return s * Math.min(1, (a - TILT_DEAD) / (TILT_RANGE - TILT_DEAD));
+  }
+
   window.addEventListener("deviceorientation", (e) => {
     if (!tiltOn) return;
     const v = tiltAngle(e);
     if (v === null || v === undefined || Number.isNaN(v)) return;
-    if (tiltBase === null) tiltBase = v;
-    const d = v - tiltBase;
-    game.tiltSteer = Math.max(-1, Math.min(1, d / TILT_RANGE));
+    if (tiltBase === null || calibN < CALIB_COUNT) {
+      // initial calibration: average the first few readings so one noisy
+      // instant doesn't define "straight"
+      calibSum += v;
+      calibN++;
+      if (calibN >= CALIB_COUNT) tiltBase = calibSum / CALIB_COUNT;
+      game.tiltSteer = 0;
+      return;
+    }
+    game.tiltSteer = tiltResponse(v);
   });
 
   async function enableTilt() {
@@ -204,8 +237,7 @@ function setupTouch() {
         if (res !== "granted") return false;
       }
       tiltOn = true;
-      tiltBase = null;          // calibrate neutral from the next reading
-      game.tiltSteer = 0;
+      resetTiltCalibration();   // recalibrate neutral from fresh readings
       ui.classList.add("tilt");
       $("tc-tilt").classList.add("on");
       $("tc-tilt").textContent = "TILT✓";
