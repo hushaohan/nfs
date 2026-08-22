@@ -18,6 +18,8 @@ class Game {
     this.state = STATES.MENU;
     this.selectedCar = "falcon";
     this.autoBrake = false;
+    // on-screen touch controls (set by main.js; merged into player input)
+    this.touch = { left: false, right: false, gas: false, brake: false, nitro: false, handbrake: false };
     this.cameraMode = 0;
     this.racers = [];          // { car: CarPhysics, mesh, ai: AIDriver|null, isPlayer, name, color, distSamples, prevIdx, lapDone, finishTime, hintIdx }
     this.player = null;
@@ -258,20 +260,21 @@ class Game {
 
   _playerInput() {
     const k = this.keys;
-    const throttle = (k["KeyW"] || k["ArrowUp"]) ? 1 : 0;
-    let brake = (k["KeyS"] || k["ArrowDown"]) ? 1 : 0;
+    const t = this.touch || {};
+    const throttle = (k["KeyW"] || k["ArrowUp"] || t.gas) ? 1 : 0;
+    let brake = (k["KeyS"] || k["ArrowDown"] || t.brake) ? 1 : 0;
+    let steer = 0;
+    if (k["KeyA"] || k["ArrowLeft"] || t.left) steer -= 1;
+    if (k["KeyD"] || k["ArrowRight"] || t.right) steer += 1;
     // auto-brake: releasing the throttle applies the brakes (toggle with B)
     if (this.autoBrake && throttle === 0 && brake === 0 && this.player) {
       const vx = this.player.car.vx;
       if (vx > 1.2) brake = clampG((vx - 1.0) / 10, 0.15, 0.75);
     }
-    let steer = 0;
-    if (k["KeyA"] || k["ArrowLeft"]) steer -= 1;
-    if (k["KeyD"] || k["ArrowRight"]) steer += 1;
     return {
       throttle, brake, steer,
-      handbrake: !!k["Space"],
-      nitro: !!(k["ShiftLeft"] || k["ShiftRight"]),
+      handbrake: !!(k["Space"] || t.handbrake),
+      nitro: !!(k["ShiftLeft"] || k["ShiftRight"] || t.nitro),
     };
   }
 

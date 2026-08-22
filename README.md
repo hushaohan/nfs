@@ -35,6 +35,14 @@ requests. Either:
 enabled, releasing the throttle automatically applies the brakes, so you only
 need the accelerator to slow for corners — no need to press the brake key.
 
+## Mobile / touch
+
+On touch devices an on-screen control layer appears automatically during a
+race: steering buttons (bottom left), gas/brake pedals plus nitro and drift
+buttons (bottom right), and pause/reset chips (top left). It supports
+multi-touch (steer while braking), and the HUD scales down on small screens.
+Landscape orientation is recommended.
+
 ## Physics model (`js/physics.js`)
 
 A semi-professional slip model, not an arcade approximation:

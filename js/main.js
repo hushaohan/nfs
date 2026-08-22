@@ -66,8 +66,57 @@ function wireButtons() {
   $("btn-results-menu").addEventListener("click", () => { game.audio.click(); game.toMenu(); });
 }
 
+function setupTouch() {
+  const ui = $("touch-ui");
+  if (!ui) return;
+  const isTouch = ("ontouchstart" in window) || ((typeof navigator !== "undefined" && navigator.maxTouchPoints) || 0) > 0;
+  if (!isTouch) return;
+
+  ui.classList.remove("hidden");
+
+  // multi-touch-safe press/release: each pointer is tracked by id
+  const FLAGS = [
+    ["tc-gas", "gas"], ["tc-brake", "brake"],
+    ["tc-left-btn", "left"], ["tc-right-btn", "right"],
+    ["tc-nitro", "nitro"], ["tc-handbrake", "handbrake"],
+  ];
+  const activePointers = new Map();   // pointerId -> flag
+  for (const [id, flag] of FLAGS) {
+    const el = $(id);
+    if (!el) continue;
+    el.addEventListener("pointerdown", (e) => {
+      e.preventDefault();
+      try { el.setPointerCapture(e.pointerId); } catch (_) {}
+      activePointers.set(e.pointerId, flag);
+      game.touch[flag] = true;
+      el.classList.add("pressed");
+      game.audio.init();
+    });
+    const release = (e) => {
+      if (activePointers.get(e.pointerId) !== flag) return;
+      activePointers.delete(e.pointerId);
+      game.touch[flag] = false;
+      el.classList.remove("pressed");
+    };
+    el.addEventListener("pointerup", release);
+    el.addEventListener("pointercancel", release);
+    el.addEventListener("contextmenu", (e) => e.preventDefault());
+  }
+
+  // chips: pause / reset-to-track
+  $("tc-pause").addEventListener("click", () => {
+    game.audio.click();
+    if (game.state === STATES.PAUSED) game.resume(); else game.pause();
+  });
+  $("tc-reset").addEventListener("click", () => { game.audio.click(); game._resetPlayerToTrack(); });
+
+  // block iOS pinch-zoom during play
+  document.addEventListener("gesturestart", (e) => e.preventDefault());
+}
+
 window.addEventListener("DOMContentLoaded", () => {
   updateMenuFooter();
   wireButtons();
+  setupTouch();
   game.init($("game-canvas"));
 });
