@@ -70,6 +70,8 @@ class Game {
 
     this.speedoCtx = document.getElementById("speedo").getContext("2d");
     this.minimapCtx = document.getElementById("minimap").getContext("2d");
+    const radar = document.getElementById("radar");
+    this.radarCtx = radar ? radar.getContext("2d") : null;
 
     requestAnimationFrame((t) => this._loop(t));
   }
@@ -656,6 +658,7 @@ class Game {
 
     this._drawSpeedo(car);
     this._drawMinimap();
+    this._drawRadar();
   }
 
   _drawSpeedo(car) {
@@ -778,6 +781,98 @@ class Game {
         ctx.stroke();
       }
     }
+  }
+
+  /* Rotating radar: local track view centered on the player, car-up
+   * orientation (forward = up, matching the chase camera). */
+  _drawRadar() {
+    const ctx = this.radarCtx;
+    if (!ctx || !this.player) return;
+    const S = 190, C = S / 2;
+    ctx.clearRect(0, 0, S, S);
+
+    const car = this.player.car;
+    const c = Math.cos(car.heading), s = Math.sin(car.heading);
+    const scale = 0.45;                       // px per meter (~210 m radius)
+    const roadW = this.track.halfW * 2 * scale;
+
+    // world → radar px; forward maps to up, screen-right stays right
+    const toRadar = (wx, wz) => {
+      const dx = wx - car.x, dz = wz - car.z;
+      return {
+        x: C + (-dx * s + dz * c) * scale,
+        y: C - (dx * c + dz * s) * scale,
+      };
+    };
+
+    ctx.save();
+    ctx.beginPath();
+    ctx.arc(C, C, C - 3, 0, Math.PI * 2);
+    ctx.clip();
+    ctx.fillStyle = "rgba(8,10,16,0.72)";
+    ctx.fillRect(0, 0, S, S);
+
+    // track ribbon around the player (±samples along the spline)
+    const N = this.track.samples.length;
+    const idx = this.track.nearestIndex(car.x, car.z, this.player.hintIdx);
+    const BEHIND = 28, AHEAD = 130;           // ~1.76 m per sample
+    for (const pass of [[roadW + 5, "rgba(255,255,255,0.10)"], [roadW, "rgba(255,255,255,0.55)"]]) {
+      ctx.beginPath();
+      let first = true;
+      for (let k = -BEHIND; k <= AHEAD; k += 2) {
+        const sm = this.track.samples[(idx + k + N) % N];
+        const pt = toRadar(sm.pos.x, sm.pos.z);
+        if (first) { ctx.moveTo(pt.x, pt.y); first = false; } else ctx.lineTo(pt.x, pt.y);
+      }
+      ctx.lineWidth = pass[0];
+      ctx.strokeStyle = pass[1];
+      ctx.stroke();
+    }
+
+    // start/finish tick when in range
+    {
+      const s0 = this.track.samples[0];
+      const pt = toRadar(s0.pos.x, s0.pos.z);
+      if ((pt.x - C) ** 2 + (pt.y - C) ** 2 < (C - 8) ** 2) {
+        ctx.fillStyle = "#fff";
+        ctx.fillRect(pt.x - 2.5, pt.y - 2.5, 5, 5);
+      }
+    }
+
+    // opponents
+    for (const r of this.racers) {
+      if (r.isPlayer) continue;
+      const pt = toRadar(r.car.x, r.car.z);
+      if ((pt.x - C) ** 2 + (pt.y - C) ** 2 > (C - 7) ** 2) continue;
+      ctx.beginPath();
+      ctx.arc(pt.x, pt.y, 4, 0, Math.PI * 2);
+      ctx.fillStyle = "#" + new THREE.Color(r.color).getHexString();
+      ctx.fill();
+      ctx.lineWidth = 1;
+      ctx.strokeStyle = "rgba(0,0,0,0.6)";
+      ctx.stroke();
+    }
+    ctx.restore();
+
+    // fixed player arrow at center pointing up (travel direction)
+    ctx.save();
+    ctx.translate(C, C);
+    ctx.beginPath();
+    ctx.moveTo(0, -9); ctx.lineTo(6.5, 7); ctx.lineTo(0, 3.5); ctx.lineTo(-6.5, 7);
+    ctx.closePath();
+    ctx.fillStyle = "#fff";
+    ctx.fill();
+    ctx.lineWidth = 1.6;
+    ctx.strokeStyle = "#" + new THREE.Color(this.player.color).getHexString();
+    ctx.stroke();
+    ctx.restore();
+
+    // rim
+    ctx.beginPath();
+    ctx.arc(C, C, C - 3, 0, Math.PI * 2);
+    ctx.lineWidth = 2;
+    ctx.strokeStyle = "rgba(255,255,255,0.25)";
+    ctx.stroke();
   }
 
   /* ================= results ================= */

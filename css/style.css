@@ -176,6 +176,14 @@ kbd {
   border-radius: 8px;
 }
 
+#hud-radar {
+  position: absolute; bottom: 18px; left: 50%; transform: translateX(-50%);
+  width: 190px; height: 190px;
+  border-radius: 50%;
+  box-shadow: 0 0 22px rgba(0,0,0,0.55);
+}
+#radar { display: block; }
+
 #hud-speed { position: absolute; bottom: 18px; right: 18px; width: 260px; height: 260px; }
 #speedo { position: absolute; inset: 0; }
 #speed-readout {
