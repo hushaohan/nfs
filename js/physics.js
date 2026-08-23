@@ -87,6 +87,8 @@ class CarPhysics {
     this.localGrip = 1;
 
     this._brakeLight = false;
+    this.brakeAssist = 0;   // 0..1, set each step (ESP-style brake assist)
+    this.steerEff = 0;      // steering after brake wash-out
   }
 
   /* Place the car on the track */
@@ -178,6 +180,17 @@ class CarPhysics {
     }
     this._brakeLight = br > 0.05 || hb > 0;
 
+    // ESP-style stability assist under braking: braking shifts grip to the
+    // front axle, whose lateral force then dominates the yaw moment and can
+    // pivot the car into a spin. Two countermeasures, both scaling with
+    // brake pressure and vanishing at zero brake:
+    //   1. wash out some steering (mimics the front washing out / driver
+    //      unwinding lock as grip fades)
+    //   2. extra yaw damping (applied at the yaw-moment stage below)
+    // Handbrake is separate, so drifting is untouched.
+    this.brakeAssist = br;
+    this.steerEff = this.steer * (1 - 0.22 * br);
+
     /* ---------- weight transfer (longitudinal) ---------- */
     const g = 9.81;
     const staticFront = this.mass * g * (this.cgToRear / this.wheelbase);
@@ -202,7 +215,7 @@ class CarPhysics {
     const vAbs = Math.max(Math.abs(this.vx), minV);
     const dir = sign(this.vx) || 1;
 
-    const slipFront = Math.atan2(this.vy + a * this.yawRate, vAbs) * dir - this.steer;
+    const slipFront = Math.atan2(this.vy + a * this.yawRate, vAbs) * dir - this.steerEff;
     const slipRear  = Math.atan2(this.vy - b * this.yawRate, vAbs) * dir;
     this.slipFront = slipFront; this.slipRear = slipRear;
 
@@ -226,7 +239,17 @@ class CarPhysics {
     const Fx_drive_rear  = driveForce * (1 - this.driveBias);
 
     // braking split (front-biased)
-    const brakeSplit = this.spec.brakeBias;
+    // PREDICTIVE load-ratio tracking: anticipate the longitudinal weight
+    // transfer this very brake force will cause (Δload = F·h/L), instead of
+    // relying on last frame's lagged loads. Each axle is demanded at the
+    // same fraction of its available grip from the FIRST frame of braking,
+    // so both saturate together (ideal ABS-like distribution) and lateral
+    // balance survives — stable trail braking instead of snap spins.
+    const tfPredict = brakeForce * this.cgHeight / this.wheelbase;
+    const predFront = Math.max(staticFront + tfPredict, this.mass * g * 0.05);
+    const predRear  = Math.max(staticRear  - tfPredict, this.mass * g * 0.05);
+    const predRatio = predFront / (predFront + predRear);
+    const brakeSplit = clamp(predRatio, this.spec.brakeBias - 0.10, 0.93);
     let Fx_brake_front = -sign(this.vx) * brakeForce * brakeSplit;
     let Fx_brake_rear  = -sign(this.vx) * brakeForce * (1 - brakeSplit);
     if (hb > 0) { // handbrake locks rears
@@ -259,14 +282,28 @@ class CarPhysics {
     Fx_front = clamp(Fx_front, -maxFForce, maxFForce);
     Fx_rear  = clamp(Fx_rear,  -maxRForce, maxRForce);
 
+    // Stability control under braking: weight transfer gives the front axle
+    // several times the rear's lateral capacity, so unbalanced front grip
+    // pivots the car into a spin (Mz = a·FyF − b·FyR goes runaway). Cap the
+    // front lateral force to what the rear can balance plus a controlled
+    // margin that scales with brake pressure: trail braking now TIGHTENS
+    // the line gently instead of snapping the car sideways. Zero effect
+    // when off the brakes — normal cornering and handbrake drift untouched.
+    if (br > 0) {
+      const fyBalance = (b / a) * Math.abs(FyR) + 2600 * br;
+      if (Math.abs(FyF) > fyBalance) {
+        FyF = (FyF > 0 ? 1 : -1) * fyBalance;
+      }
+    }
+
     /* ---------- total forces in body frame ---------- */
     const Fx_total = Fx_front + Fx_rear + rollRes + aeroDrag;
     const Fy_total = FyF + FyR;
 
     // yaw moment from lateral forces (+ front pushes left → yaw left)
     const Mz = a * FyF - b * FyR;
-    // small aligning damping
-    const yawDamp = -this.spec.yawDamping * this.yawRate;
+    // aligning damping, strengthened while braking (stability assist)
+    const yawDamp = -this.spec.yawDamping * (1 + 2.4 * this.brakeAssist) * this.yawRate;
 
     /* ---------- integrate ---------- */
     this.accelX = Fx_total / this.mass;
@@ -365,7 +402,7 @@ const CAR_SPECS = {
     engine: { maxTorque: 560, redline: 7600, idle: 900, shiftUp: 0.95, shiftDown: 0.42 },
     gears: [3.6, 2.2, 1.55, 1.18, 0.95, 0.78], finalDrive: 3.45,
     driveBias: 0.0, drivetrainEff: 0.86,
-    brakeForce: 26000, brakeBias: 0.62, reverseForce: 7500,
+    brakeForce: 20500, brakeBias: 0.62, reverseForce: 7500,
     dragCoef: 0.62, downforce: 2.4, rollResist: 0.012,
     handbrakeGrip: 0.35, handbrakeForce: 9000,
     yawDamping: 260, yawFriction: 0.50,
@@ -382,7 +419,7 @@ const CAR_SPECS = {
     engine: { maxTorque: 640, redline: 8200, idle: 950, shiftUp: 0.96, shiftDown: 0.44 },
     gears: [3.3, 2.1, 1.5, 1.15, 0.92, 0.75, 0.62], finalDrive: 3.30,
     driveBias: 0.45, drivetrainEff: 0.84,
-    brakeForce: 27500, brakeBias: 0.60, reverseForce: 7800,
+    brakeForce: 22000, brakeBias: 0.60, reverseForce: 7800,
     dragCoef: 0.58, downforce: 3.0, rollResist: 0.011,
     handbrakeGrip: 0.40, handbrakeForce: 8500,
     yawDamping: 300, yawFriction: 0.55,
@@ -399,7 +436,7 @@ const CAR_SPECS = {
     engine: { maxTorque: 470, redline: 8600, idle: 1000, shiftUp: 0.95, shiftDown: 0.46 },
     gears: [3.7, 2.35, 1.65, 1.25, 1.0, 0.84], finalDrive: 3.70,
     driveBias: 0.0, drivetrainEff: 0.88,
-    brakeForce: 24500, brakeBias: 0.64, reverseForce: 7200,
+    brakeForce: 19500, brakeBias: 0.64, reverseForce: 7200,
     dragCoef: 0.60, downforce: 2.6, rollResist: 0.012,
     handbrakeGrip: 0.30, handbrakeForce: 9500,
     yawDamping: 220, yawFriction: 0.44,
