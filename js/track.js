@@ -156,7 +156,7 @@ class Track {
       // left & right edge
       positions.push(s.pos.x + s.nx * hw, s.pos.y + 0.02, s.pos.z + s.nz * hw);
       positions.push(s.pos.x - s.nx * hw, s.pos.y + 0.02, s.pos.z - s.nz * hw);
-      uvs.push(0, l / 8); uvs.push(1, l / 8);
+      uvs.push(0, l / 4.5); uvs.push(1, l / 4.5);   // finer grain than ground
       if (i < N) {
         const a = i * 2, b = i * 2 + 1, c = i * 2 + 2, d = i * 2 + 3;
         indices.push(a, b, c, b, d, c);
@@ -170,8 +170,14 @@ class Track {
     geo.computeVertexNormals();
 
     const tex = this._makeRoadTexture();
+    // Tarmac gets its own material identity vs the matte landscape:
+    // smoother, faintly metallic sheen so sun/lamps streak across it,
+    // with per-environment overrides (wet neon streets, icy glacier)
     const mat = new THREE.MeshStandardMaterial({
-      map: tex, roughness: 0.92, metalness: 0.05, color: 0x9a9a9a,
+      map: tex,
+      roughness: this.env.roadRough !== undefined ? this.env.roadRough : 0.58,
+      metalness: this.env.roadMetal !== undefined ? this.env.roadMetal : 0.14,
+      color: this.env.roadTint !== undefined ? this.env.roadTint : 0xd8d8d8,
     });
     const road = new THREE.Mesh(geo, mat);
     road.receiveShadow = true;
@@ -1048,6 +1054,7 @@ const TRACKS = {
       sunColor: 0xffc07a, sunIntensity: 1.35, sunPos: [90, 130, 50],
       hemiSky: 0x8fa8d8, hemiGround: 0x1a2028, hemiInt: 0.75,
       fogColor: 0x2a3550, fogNear: 180, fogFar: 750, exposure: 1.15,
+      roadRough: 0.48, roadMetal: 0.20,          // rain-sheened city tarmac
       groundTex: "concrete", terrainTint: 0xc9ced6, wallTint: 0x8f95a0,
       rockTint: 0x7d838d,
       flora: { type: "pine", density: 0.9, color: 0x2e6b34, trunk: 0x5a4632 },
@@ -1128,6 +1135,7 @@ const TRACKS = {
       sunColor: 0xfff4e0, sunIntensity: 1.5, sunPos: [-300, 400, 150],
       hemiSky: 0xcfe4ff, hemiGround: 0x8a95a5, hemiInt: 0.95,
       fogColor: 0xdfeef8, fogNear: 220, fogFar: 820, exposure: 1.02,
+      roadRough: 0.40, roadMetal: 0.10,          // polished ice sheen
       groundTex: "snow", terrainTint: 0xf4f8fd,
       rockTint: 0x8d99a8,
       hillAmp: 1.1,
@@ -1156,6 +1164,7 @@ const TRACKS = {
       sunColor: 0x93a9e8, sunIntensity: 1.05, sunPos: [250, 350, -80],
       hemiSky: 0x3d5290, hemiGround: 0x10141f, hemiInt: 0.85,
       fogColor: 0x101830, fogNear: 180, fogFar: 740, exposure: 1.42,
+      roadRough: 0.30, roadMetal: 0.30, roadTint: 0xaab6cc,   // wet midnight asphalt
       groundTex: "concrete", terrainTint: 0xb4bcc8, wallTint: 0x7d838d,
       hillAmp: 0.25,
       flora: null,
