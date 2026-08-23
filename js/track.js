@@ -153,10 +153,11 @@ class Track {
     for (let i = 0; i <= N; i++) {
       const s = this.samples[i % N];
       const l = i / N * this.length;
-      // left & right edge
+      // left & right edge — u tiles 3x across the width so the asphalt
+      // grain stays fine instead of smearing over the full road span
       positions.push(s.pos.x + s.nx * hw, s.pos.y + 0.02, s.pos.z + s.nz * hw);
       positions.push(s.pos.x - s.nx * hw, s.pos.y + 0.02, s.pos.z - s.nz * hw);
-      uvs.push(0, l / 4.5); uvs.push(1, l / 4.5);   // finer grain than ground
+      uvs.push(0, l / 4.5); uvs.push(3, l / 4.5);
       if (i < N) {
         const a = i * 2, b = i * 2 + 1, c = i * 2 + 2, d = i * 2 + 3;
         indices.push(a, b, c, b, d, c);
@@ -182,6 +183,48 @@ class Track {
     const road = new THREE.Mesh(geo, mat);
     road.receiveShadow = true;
     this.group.add(road);
+
+    /* shoulder skirts: sloped dirt bands from each road edge down into the
+     * terrain bed — the road grows out of the landscape instead of sitting
+     * on it like a placed slab */
+    {
+      const sw = 1.15;                        // shoulder width (m)
+      const sp = [], su = [], si = [];
+      const vertStride = 4;                   // 2 verts × 2 sides per sample
+      for (let i = 0; i <= N; i++) {
+        const s = this.samples[i % N];
+        const l = i / N * this.length;
+        for (const side of [1, -1]) {
+          const base = sp.length / 3;
+          sp.push(
+            s.pos.x + s.nx * side * hw, s.pos.y + 0.005, s.pos.z + s.nz * side * hw,
+            s.pos.x + s.nx * side * (hw + sw), s.pos.y - 0.075, s.pos.z + s.nz * side * (hw + sw)
+          );
+          su.push(side > 0 ? 0 : 1, l / 3.2);
+          su.push(side > 0 ? 1 : 0, l / 3.2);
+          if (i < N) {
+            const a = i * vertStride + (side > 0 ? 0 : 2);
+            const b = a + 1, c2 = a + vertStride, d2 = c2 + 1;
+            if (side > 0) si.push(a, c2, b, b, c2, d2);
+            else si.push(a, b, c2, b, d2, c2);
+          }
+        }
+      }
+      const sg = new THREE.BufferGeometry();
+      sg.setAttribute("position", new THREE.Float32BufferAttribute(sp, 3));
+      sg.setAttribute("uv", new THREE.Float32BufferAttribute(su, 2));
+      sg.setIndex(si);
+      sg.computeVertexNormals();
+      const sTex = TEX.ground(this.env.groundTex || "grass");
+      const sMat = new THREE.MeshStandardMaterial({
+        map: sTex, color: 0x8f8d86, roughness: 1,   // dirtier than the field
+      });
+      const shoulders = new THREE.Mesh(sg, sMat);
+      shoulders.receiveShadow = true;
+      this.group.add(shoulders);
+    }
+
+    this._buildMarkings();
 
     /* optional neon edge strips (night tracks): unlit glowing rails that
      * trace the road so it reads clearly against a dark world */
@@ -457,6 +500,66 @@ class Track {
     });
     curbMesh.instanceMatrix.needsUpdate = true;
     this.group.add(curbMesh);
+  }
+
+  /* ---------- lane markings: crisp decal geometry ----------
+   * Painted lines live here instead of the asphalt texture so the grain
+   * can tile across the width while markings stay razor-sharp. */
+  _buildMarkings() {
+    const N = this.samples.length;
+    const hw = this.halfW;
+    const y = 0.048;                       // above the asphalt skin
+    const dummy = new THREE.Object3D();
+
+    // solid white edge lines: thin ribbons following the spline
+    const lineW = 0.16, off = hw - 0.55;
+    const lp = [], lu = [], li = [];
+    for (let i = 0; i <= N; i++) {
+      const s = this.samples[i % N];
+      const l = i / N * this.length;
+      for (const side of [1, -1]) {
+        lp.push(
+          s.pos.x + s.nx * side * (off + lineW / 2), s.pos.y + y, s.pos.z + s.nz * side * (off + lineW / 2),
+          s.pos.x + s.nx * side * (off - lineW / 2), s.pos.y + y, s.pos.z + s.nz * side * (off - lineW / 2)
+        );
+        lu.push(0, l / 6); lu.push(1, l / 6);
+        if (i < N) {
+          const stride = 4;
+          const a = i * stride + (side > 0 ? 0 : 2);
+          const b = a + 1, c = a + stride, d = c + 1;
+          if (side > 0) li.push(a, c, b, b, c, d);
+          else li.push(a, b, c, b, d, c);
+        }
+      }
+    }
+    const lg = new THREE.BufferGeometry();
+    lg.setAttribute("position", new THREE.Float32BufferAttribute(lp, 3));
+    lg.setAttribute("uv", new THREE.Float32BufferAttribute(lu, 2));
+    lg.setIndex(li);
+    lg.computeVertexNormals();
+    const lineMat = new THREE.MeshStandardMaterial({
+      color: 0xe9e9df, roughness: 0.55,
+      emissive: 0x8a8a80, emissiveIntensity: this.env.roadEdgeGlow ? 0.35 : 0.06,
+    });
+    this.group.add(new THREE.Mesh(lg, lineMat));
+
+    // dashed yellow center line: instanced dash planes
+    const dashGeo = new THREE.PlaneGeometry(0.18, 2.4);
+    const dashMat = new THREE.MeshStandardMaterial({
+      color: 0xd8b23c, roughness: 0.55,
+      emissive: 0x6a5417, emissiveIntensity: this.env.roadEdgeGlow ? 0.4 : 0.07,
+    });
+    const count = Math.floor(N / 6);
+    const dashes = new THREE.InstancedMesh(dashGeo, dashMat, count);
+    for (let k = 0; k < count; k++) {
+      const s = this.samples[k * 6];
+      dummy.position.set(s.pos.x, s.pos.y + y, s.pos.z);
+      dummy.rotation.set(-Math.PI / 2, 0, -Math.atan2(s.tan.z, s.tan.x));
+      dummy.scale.setScalar(1);
+      dummy.updateMatrix();
+      dashes.setMatrixAt(k, dummy.matrix);
+    }
+    this.group.add(dashes);
   }
 
   /* ---------- corner chevron signs ----------

@@ -169,29 +169,16 @@ const TEX = (() => {
     return finish(gen());
   }
 
-  /* asphalt with baked lane markings; v axis tiles every ~8 m of road */
+  /* asphalt grain only — lane markings are separate decal geometry so the
+   * texture can tile across the road width without smearing */
   function asphalt() {
     const c = cv(256, 256), g = c.getContext("2d");
     g.fillStyle = "#26282c"; g.fillRect(0, 0, 256, 256);
     speckle(g, 256, 256, 3200, ["#33363b", "#1c1e21", "#3d4046", "#151619"], 2.2, 0.2, 0.7);
     // aggregate glints
-    speckle(g, 256, 256, 220, ["#565b63", "#6a707a"], 1.2, 0.25, 0.5);
-    // tire-wear darker bands in each lane
-    g.globalAlpha = 0.14;
-    g.fillStyle = "#111214";
-    for (const cx of [72, 184]) {
-      g.fillRect(cx - 16, 0, 32, 256);
-    }
-    g.globalAlpha = 1;
+    speckle(g, 256, 256, 260, ["#565b63", "#6a707a"], 1.2, 0.25, 0.5);
     // patch repairs
     blotches(g, 256, 256, 6, ["rgba(16,17,19,0.5)", "rgba(52,55,60,0.4)"], 8, 22, 0.5);
-    // edge lines (off-white)
-    g.fillStyle = "#d6d6cc";
-    g.fillRect(8, 0, 5, 256);
-    g.fillRect(243, 0, 5, 256);
-    // dashed center line
-    g.fillStyle = "#d8b23c";
-    for (let y = 0; y < 256; y += 56) g.fillRect(125, y, 6, 30);
     cracks(g, 256, 256, 9, "rgba(12,13,15,0.55)");
     return finish(c);
   }
