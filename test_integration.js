@@ -5,12 +5,12 @@ const vm = require("vm");
 
 global.THREE = require("./vendor/three.min.js");
 // stub document/canvas for texture generation
-const noopCtx = new Proxy({}, { get: (t, k) => (k === "createLinearGradient" || k === "createRadialGradient")
+const noopCtx = new Proxy({}, { get: (t, k) => (k === "createLinearGradient" || k === "createRadialGradient" || k === "createConicGradient")
   ? () => ({ addColorStop: () => {} })
   : () => {} });
 global.document = { createElement: () => ({ getContext: () => noopCtx, width: 0, height: 0, style: {} }) };
 
-for (const f of ["js/track.js", "js/physics.js", "js/ai.js"]) {
+for (const f of ["js/textures.js", "js/track.js", "js/physics.js", "js/ai.js"]) {
   vm.runInThisContext(fs.readFileSync(f, "utf8"), { filename: f });
 }
 
