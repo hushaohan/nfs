@@ -894,7 +894,7 @@ class Game {
     ctx.clip();
 
     // flat translucent backing
-    ctx.fillStyle = "rgba(8,11,18,0.45)";
+    ctx.fillStyle = "rgba(8,11,18,0.28)";
     ctx.fillRect(0, 0, S, S);
 
     // track ribbon: drawn far past the rim and faded out at the edge,
