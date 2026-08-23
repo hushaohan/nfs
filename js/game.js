@@ -893,33 +893,34 @@ class Game {
     ctx.arc(C, C, C - 1, 0, Math.PI * 2);
     ctx.clip();
 
-    // flat translucent backing
-    ctx.fillStyle = "rgba(8,11,18,0.28)";
+    // flat translucent backing — barely a hint against the scene
+    ctx.fillStyle = "rgba(8,11,18,0.14)";
     ctx.fillRect(0, 0, S, S);
 
-    // track ribbon: drawn far past the rim and faded out at the edge,
-    // so the road always reaches (and dissolves beyond) the boundary
+    // track ribbon: the road you've driven trails behind in grey, the road
+    // ahead stays white; both spans reach past the rim in every direction
     const N = this.track.samples.length;
     const idx = this.track.nearestIndex(car.x, car.z, this.player.hintIdx);
     const roadW = this.track.halfW * 2 * scale;
-    const BEHIND = 140, AHEAD = 340;          // ≈ ±530 m along the spline
-    for (const pass of [
-      [roadW + 9, "rgba(0,229,255,0.09)"],     // soft neon under-glow
-      [roadW + 4, "rgba(255,255,255,0.09)"],
-      [roadW, "rgba(255,255,255,0.62)"],
-    ]) {
+    const BEHIND = 340, AHEAD = 340;          // ≈ ±530 m along the spline
+    const strokeSpan = (k0, k1, style) => {
       ctx.beginPath();
       let first = true;
-      for (let k = -BEHIND; k <= AHEAD; k += 3) {
+      for (let k = k0; k <= k1; k += 3) {
         const sm = this.track.samples[(idx + k + N) % N];
         const pt = toRadar(sm.pos.x, sm.pos.z);
         if (first) { ctx.moveTo(pt.x, pt.y); first = false; } else ctx.lineTo(pt.x, pt.y);
       }
-      ctx.lineWidth = pass[0];
-      ctx.strokeStyle = pass[1];
+      ctx.lineWidth = roadW;
+      ctx.strokeStyle = style;
       ctx.lineJoin = "round";
       ctx.stroke();
-    }
+    };
+    // already-driven: grey history (drawn first, underneath)
+    strokeSpan(-BEHIND, 0, "rgba(158,163,170,0.50)");
+    // ahead: neon under-glow + white road
+    strokeSpan(-6, AHEAD, "rgba(0,229,255,0.09)");
+    strokeSpan(-3, AHEAD, "rgba(255,255,255,0.62)");
 
     // start/finish tick when in range
     {
