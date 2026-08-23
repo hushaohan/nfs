@@ -100,12 +100,12 @@ function wireButtons() {
     if (cp) cp.show();
   });
   $("btn-car-back").addEventListener("click", () => { game.audio.click(); if (carPreview) carPreview.hide(); game._showScreen("menu-main"); });
-  $("btn-car-confirm").addEventListener("click", () => { game.audio.click(); if (carPreview) carPreview.hide(); game._showScreen("menu-main"); });
+  $("btn-car-confirm").addEventListener("click", () => { game.audio.init(); game.audio.click(); if (carPreview) carPreview.hide(); game.startRace(); });
   $("btn-controls").addEventListener("click", () => { game.audio.init(); game.audio.click(); game._showScreen("menu-controls"); });
 
   $("btn-track").addEventListener("click", () => { game.audio.init(); game.audio.click(); buildTrackSelect(); game._showScreen("menu-track"); });
   $("btn-track-back").addEventListener("click", () => { game.audio.click(); game._showScreen("menu-main"); });
-  $("btn-track-confirm").addEventListener("click", () => { game.audio.click(); game._showScreen("menu-main"); });
+  $("btn-track-confirm").addEventListener("click", () => { game.audio.init(); game.audio.click(); game.startRace(); });
   $("btn-controls-back").addEventListener("click", () => { game.audio.click(); game._showScreen("menu-main"); });
 
   // auto-brake toggle (button mirrors the B hotkey)
