@@ -59,6 +59,8 @@ html, body {
 .tagline { color: var(--dim); letter-spacing: 6px; margin: 14px 0 44px; font-size: 13px; }
 
 .menu-buttons { display: flex; flex-direction: column; gap: 12px; align-items: center; margin-top: 24px; }
+/* CONFIRM reads as RACE on touch layouts (swapped in the mobile block) */
+.mobile-label { display: none; }
 .btn {
   width: 300px; padding: 14px 20px;
   font-size: 16px; font-weight: 700; letter-spacing: 2px;
@@ -372,19 +374,31 @@ kbd {
   .car-card canvas, .car-card img { max-width: 100%; }
   #car-grid { margin-bottom: 6px; }
 
-  /* BACK / CONFIRM sit side by side and always on-screen */
+  /* BACK / CONFIRM become corner-pinned chips: back top-left, race
+     top-right — always visible regardless of content height */
   #menu-car .menu-buttons,
-  #menu-track .menu-buttons {
-    flex-direction: row;
-    justify-content: center;
-    gap: 10px;
-    margin-top: 10px;
+  #menu-track .menu-buttons { display: contents; }
+  #menu-car .menu-buttons .btn,
+  #menu-track .menu-buttons .btn {
+    position: absolute;
+    top: 12px;
+    z-index: 6;
+    width: auto; min-width: 0;
+    padding: 10px 16px; font-size: 13px; letter-spacing: 2px;
+    background: rgba(8,11,18,0.72);
   }
-  #menu-car .btn, #menu-track .btn {
-    width: auto; min-width: 128px;
-    padding: 11px 18px; font-size: 13px; letter-spacing: 2px;
-  }
+  #btn-car-back   { left: 12px; }
+  #btn-car-confirm{ right: 12px; border-left: none; border-right: 4px solid var(--accent2); clip-path: polygon(14px 0, 100% 0, 100% 100%, 0 100%); }
+  #btn-track-back { left: 12px; }
+  #btn-track-confirm{ right: 12px; border-left: none; border-right: 4px solid var(--accent2); clip-path: polygon(14px 0, 100% 0, 100% 100%, 0 100%); }
 
-  /* track select: keep the world visible, cards low, buttons lowest */
+  /* confirm doubles as RACE on touch layouts */
+  .mobile-label { display: inline; }
+  .desktop-label { display: none; }
+
+  /* leave headroom under the corner buttons */
+  #menu-car .menu-inner, #menu-track .menu-inner { padding-top: 58px !important; }
+
+  /* track select: keep the world visible, cards low */
   #menu-track .menu-inner { justify-content: flex-end; min-height: 100%; gap: 0; }
 }
