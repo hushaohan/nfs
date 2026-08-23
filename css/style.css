@@ -209,10 +209,9 @@ kbd {
 }
 
 #hud-radar {
-  position: absolute; top: 14px; left: 50%; transform: translateX(-50%);
+  position: absolute; top: 92px; left: 50%; transform: translateX(-50%);
   width: 150px; height: 150px;
   border-radius: 50%;
-  filter: drop-shadow(0 4px 14px rgba(0,0,0,0.55));
 }
 #radar { display: block; width: 100%; height: 100%; }
 
@@ -337,7 +336,7 @@ kbd {
 /* ============ Small screens / mobile ============ */
 @media (max-width: 980px) {
   #minimap { width: 140px; height: 140px; }
-  #hud-radar { width: 108px; height: 108px; top: 12px; }
+  #hud-radar { width: 106px; height: 106px; top: 78px; }
   #hud-speed { transform: scale(0.68); transform-origin: bottom right; }
   .hud-panel { padding: 6px 12px; }
   .hud-panel .big { font-size: 18px; }

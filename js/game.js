@@ -862,9 +862,10 @@ class Game {
   }
 
   /* Rotating radar: local track view centered on the player, car-up
-   * orientation (forward = up, matching the chase camera). Bezeled
-   * instrument with sweep beam, range ring, threat rings and rim arrows
-   * for opponents beyond sensor range. */
+   * orientation (forward = up, matching the chase camera). Deliberately
+   * frameless — the road shape fades out at the rim so it reads as a
+   * peripheral projection of the road ahead rather than a boxed gauge.
+   * Opponents beyond range still show as rim arrows (bearing cues). */
   _drawRadar() {
     const ctx = this.radarCtx;
     if (!ctx || !this.player) return;
@@ -873,7 +874,7 @@ class Game {
 
     const car = this.player.car;
     const c = Math.cos(car.heading), s = Math.sin(car.heading);
-    const RANGE = 160;                        // metres at the rim
+    const RANGE = 160;                        // metres at full fade
     const scale = C / RANGE;
 
     // world → radar px; forward maps to up, screen-right stays right
@@ -889,53 +890,41 @@ class Game {
 
     ctx.save();
     ctx.beginPath();
-    ctx.arc(C, C, C - 2, 0, Math.PI * 2);
+    ctx.arc(C, C, C - 1, 0, Math.PI * 2);
     ctx.clip();
 
-    // backing: radial falloff reads as a dark glass dome
+    // whisper-light backing: just enough tint to read on bright skies
     const bg = ctx.createRadialGradient(C, C, 6, C, C, C);
-    bg.addColorStop(0, "rgba(7,11,20,0.58)");
-    bg.addColorStop(1, "rgba(7,11,20,0.88)");
+    bg.addColorStop(0, "rgba(7,11,20,0.22)");
+    bg.addColorStop(1, "rgba(7,11,20,0.55)");
     ctx.fillStyle = bg;
     ctx.fillRect(0, 0, S, S);
 
-    // half-range ring for distance reference
-    ctx.beginPath();
-    ctx.arc(C, C, C * 0.52, 0, Math.PI * 2);
-    ctx.strokeStyle = "rgba(255,255,255,0.09)";
-    ctx.lineWidth = 1;
-    ctx.stroke();
-
-    // sweeping beam (skipped gracefully where createConicGradient is missing)
+    // sweeping beam (feature-detected; skipped where unsupported)
     if (typeof ctx.createConicGradient === "function") {
       const ang = (performance.now() * 0.0009) % (Math.PI * 2);
       const g = ctx.createConicGradient(ang, C, C);
       g.addColorStop(0, "rgba(0,229,255,0)");
-      g.addColorStop(0.82, "rgba(0,229,255,0)");
-      g.addColorStop(1, "rgba(0,229,255,0.15)");
+      g.addColorStop(0.84, "rgba(0,229,255,0)");
+      g.addColorStop(1, "rgba(0,229,255,0.10)");
       ctx.fillStyle = g;
       ctx.fillRect(0, 0, S, S);
-      ctx.strokeStyle = "rgba(0,229,255,0.28)";
-      ctx.lineWidth = 1;
-      ctx.beginPath();
-      ctx.moveTo(C, C);
-      ctx.lineTo(C + Math.sin(ang) * (C - 3), C - Math.cos(ang) * (C - 3));
-      ctx.stroke();
     }
 
-    // track ribbon around the player (±samples along the spline)
+    // track ribbon: drawn far past the rim and faded out at the edge,
+    // so the road always reaches (and dissolves beyond) the boundary
     const N = this.track.samples.length;
     const idx = this.track.nearestIndex(car.x, car.z, this.player.hintIdx);
     const roadW = this.track.halfW * 2 * scale;
-    const BEHIND = 28, AHEAD = 130;           // ~1.76 m per sample
+    const BEHIND = 140, AHEAD = 340;          // ≈ ±530 m along the spline
     for (const pass of [
-      [roadW + 9, "rgba(0,229,255,0.10)"],     // soft neon under-glow
-      [roadW + 5, "rgba(255,255,255,0.10)"],
-      [roadW, "rgba(255,255,255,0.60)"],
+      [roadW + 9, "rgba(0,229,255,0.09)"],     // soft neon under-glow
+      [roadW + 4, "rgba(255,255,255,0.09)"],
+      [roadW, "rgba(255,255,255,0.62)"],
     ]) {
       ctx.beginPath();
       let first = true;
-      for (let k = -BEHIND; k <= AHEAD; k += 2) {
+      for (let k = -BEHIND; k <= AHEAD; k += 3) {
         const sm = this.track.samples[(idx + k + N) % N];
         const pt = toRadar(sm.pos.x, sm.pos.z);
         if (first) { ctx.moveTo(pt.x, pt.y); first = false; } else ctx.lineTo(pt.x, pt.y);
@@ -959,13 +948,14 @@ class Game {
       }
     }
 
-    // opponents: dots with threat rings in range, rim arrows beyond it
+    // opponents in range: dots with proximity threat rings
     for (const r of this.racers) {
       if (r.isPlayer) continue;
       const dx = r.car.x - car.x, dz = r.car.z - car.z;
+      if (Math.hypot(dx, dz) > RANGE * 0.98) continue;
       const pt = toRadar(r.car.x, r.car.z);
       const col = "#" + new THREE.Color(r.color).getHexString();
-      if (inDisc(pt.x, pt.y, C - 8)) {
+      if (inDisc(pt.x, pt.y, C - 6)) {
         ctx.beginPath();
         ctx.arc(pt.x, pt.y, 3.6, 0, Math.PI * 2);
         ctx.fillStyle = col;
@@ -973,7 +963,6 @@ class Game {
         ctx.lineWidth = 1;
         ctx.strokeStyle = "rgba(0,0,0,0.65)";
         ctx.stroke();
-        // proximity ring: how urgently this opponent matters
         if (pt.d < 26 || pt.d < 55) {
           ctx.beginPath();
           ctx.arc(pt.x, pt.y, 7, 0, Math.PI * 2);
@@ -981,35 +970,42 @@ class Game {
           ctx.lineWidth = 1.4;
           ctx.stroke();
         }
-      } else {
-        // off-sensor: clamp to the rim as an outward arrow (bearing cue)
-        let rx = -dx * s + dz * c, ry = -(dx * c + dz * s);
-        const len = Math.hypot(rx, ry) || 1;
-        rx /= len; ry /= len;
-        const ax = C + rx * (C - 7), ay = C + ry * (C - 7);
-        const aAng = Math.atan2(ry, rx);
-        ctx.save();
-        ctx.translate(ax, ay);
-        ctx.rotate(aAng);
-        ctx.beginPath();
-        ctx.moveTo(4, 0); ctx.lineTo(-3, 3.2); ctx.lineTo(-3, -3.2);
-        ctx.closePath();
-        ctx.fillStyle = col;
-        ctx.globalAlpha = 0.75;
-        ctx.fill();
-        ctx.restore();
-        ctx.globalAlpha = 1;
       }
     }
+
+    // soft rim fade: everything above dissolves into the scene instead of
+    // ending against a hard circular wall
+    const fade = ctx.createRadialGradient(C, C, C * 0.66, C, C, C * 0.995);
+    fade.addColorStop(0, "rgba(0,0,0,0)");
+    fade.addColorStop(1, "rgba(0,0,0,1)");
+    ctx.globalCompositeOperation = "destination-out";
+    ctx.fillStyle = fade;
+    ctx.fillRect(0, 0, S, S);
+    ctx.globalCompositeOperation = "source-over";
     ctx.restore();
 
-    // bezel rings
-    ctx.lineWidth = 1.5;
-    ctx.strokeStyle = "rgba(0,229,255,0.35)";
-    ctx.beginPath(); ctx.arc(C, C, C - 1.5, 0, Math.PI * 2); ctx.stroke();
-    ctx.lineWidth = 1;
-    ctx.strokeStyle = "rgba(255,255,255,0.10)";
-    ctx.beginPath(); ctx.arc(C, C, C - 4.5, 0, Math.PI * 2); ctx.stroke();
+    // opponents beyond range: crisp arrows pinned near the rim (drawn after
+    // the fade so bearings stay readable even though the road fades away)
+    for (const r of this.racers) {
+      if (r.isPlayer) continue;
+      const dx = r.car.x - car.x, dz = r.car.z - car.z;
+      if (Math.hypot(dx, dz) <= RANGE * 0.98) continue;
+      let rx = -dx * s + dz * c, ry = -(dx * c + dz * s);
+      const len = Math.hypot(rx, ry) || 1;
+      rx /= len; ry /= len;
+      const ax = C + rx * (C - 7), ay = C + ry * (C - 7);
+      ctx.save();
+      ctx.translate(ax, ay);
+      ctx.rotate(Math.atan2(ry, rx));
+      ctx.beginPath();
+      ctx.moveTo(4, 0); ctx.lineTo(-3, 3.2); ctx.lineTo(-3, -3.2);
+      ctx.closePath();
+      ctx.fillStyle = "#" + new THREE.Color(r.color).getHexString();
+      ctx.globalAlpha = 0.75;
+      ctx.fill();
+      ctx.restore();
+      ctx.globalAlpha = 1;
+    }
 
     // fixed player arrow at center pointing up (travel direction)
     ctx.save();
@@ -1023,13 +1019,6 @@ class Game {
     ctx.strokeStyle = "#" + new THREE.Color(this.player.color).getHexString();
     ctx.stroke();
     ctx.restore();
-
-    // rim
-    ctx.beginPath();
-    ctx.arc(C, C, C - 3, 0, Math.PI * 2);
-    ctx.lineWidth = 2;
-    ctx.strokeStyle = "rgba(255,255,255,0.25)";
-    ctx.stroke();
   }
 
   /* ================= results ================= */
