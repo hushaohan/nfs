@@ -9,7 +9,8 @@ const elements = {};
 function makeCtx2d() {
   return new Proxy({}, {
     get(t, k) {
-      if (k === "createLinearGradient" || k === "createRadialGradient")
+      if (k === "createLinearGradient" || k === "createRadialGradient" ||
+          k === "createConicGradient")
         return () => ({ addColorStop() {} });
       if (k === "measureText") return () => ({ width: 0 });
       if (k === "getImageData") return () => ({ data: [] });

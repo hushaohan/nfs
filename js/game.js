@@ -862,17 +862,19 @@ class Game {
   }
 
   /* Rotating radar: local track view centered on the player, car-up
-   * orientation (forward = up, matching the chase camera). */
+   * orientation (forward = up, matching the chase camera). Bezeled
+   * instrument with sweep beam, range ring, threat rings and rim arrows
+   * for opponents beyond sensor range. */
   _drawRadar() {
     const ctx = this.radarCtx;
     if (!ctx || !this.player) return;
-    const S = 190, C = S / 2;
+    const S = ctx.canvas.width, C = S / 2;
     ctx.clearRect(0, 0, S, S);
 
     const car = this.player.car;
     const c = Math.cos(car.heading), s = Math.sin(car.heading);
-    const scale = 0.45;                       // px per meter (~210 m radius)
-    const roadW = this.track.halfW * 2 * scale;
+    const RANGE = 160;                        // metres at the rim
+    const scale = C / RANGE;
 
     // world → radar px; forward maps to up, screen-right stays right
     const toRadar = (wx, wz) => {
@@ -880,21 +882,57 @@ class Game {
       return {
         x: C + (-dx * s + dz * c) * scale,
         y: C - (dx * c + dz * s) * scale,
+        d: Math.hypot(dx, dz),
       };
     };
+    const inDisc = (x, y, r) => (x - C) ** 2 + (y - C) ** 2 <= r * r;
 
     ctx.save();
     ctx.beginPath();
-    ctx.arc(C, C, C - 3, 0, Math.PI * 2);
+    ctx.arc(C, C, C - 2, 0, Math.PI * 2);
     ctx.clip();
-    ctx.fillStyle = "rgba(8,10,16,0.72)";
+
+    // backing: radial falloff reads as a dark glass dome
+    const bg = ctx.createRadialGradient(C, C, 6, C, C, C);
+    bg.addColorStop(0, "rgba(7,11,20,0.58)");
+    bg.addColorStop(1, "rgba(7,11,20,0.88)");
+    ctx.fillStyle = bg;
     ctx.fillRect(0, 0, S, S);
+
+    // half-range ring for distance reference
+    ctx.beginPath();
+    ctx.arc(C, C, C * 0.52, 0, Math.PI * 2);
+    ctx.strokeStyle = "rgba(255,255,255,0.09)";
+    ctx.lineWidth = 1;
+    ctx.stroke();
+
+    // sweeping beam (skipped gracefully where createConicGradient is missing)
+    if (typeof ctx.createConicGradient === "function") {
+      const ang = (performance.now() * 0.0009) % (Math.PI * 2);
+      const g = ctx.createConicGradient(ang, C, C);
+      g.addColorStop(0, "rgba(0,229,255,0)");
+      g.addColorStop(0.82, "rgba(0,229,255,0)");
+      g.addColorStop(1, "rgba(0,229,255,0.15)");
+      ctx.fillStyle = g;
+      ctx.fillRect(0, 0, S, S);
+      ctx.strokeStyle = "rgba(0,229,255,0.28)";
+      ctx.lineWidth = 1;
+      ctx.beginPath();
+      ctx.moveTo(C, C);
+      ctx.lineTo(C + Math.sin(ang) * (C - 3), C - Math.cos(ang) * (C - 3));
+      ctx.stroke();
+    }
 
     // track ribbon around the player (±samples along the spline)
     const N = this.track.samples.length;
     const idx = this.track.nearestIndex(car.x, car.z, this.player.hintIdx);
+    const roadW = this.track.halfW * 2 * scale;
     const BEHIND = 28, AHEAD = 130;           // ~1.76 m per sample
-    for (const pass of [[roadW + 5, "rgba(255,255,255,0.10)"], [roadW, "rgba(255,255,255,0.55)"]]) {
+    for (const pass of [
+      [roadW + 9, "rgba(0,229,255,0.10)"],     // soft neon under-glow
+      [roadW + 5, "rgba(255,255,255,0.10)"],
+      [roadW, "rgba(255,255,255,0.60)"],
+    ]) {
       ctx.beginPath();
       let first = true;
       for (let k = -BEHIND; k <= AHEAD; k += 2) {
@@ -904,6 +942,7 @@ class Game {
       }
       ctx.lineWidth = pass[0];
       ctx.strokeStyle = pass[1];
+      ctx.lineJoin = "round";
       ctx.stroke();
     }
 
@@ -911,26 +950,66 @@ class Game {
     {
       const s0 = this.track.samples[0];
       const pt = toRadar(s0.pos.x, s0.pos.z);
-      if ((pt.x - C) ** 2 + (pt.y - C) ** 2 < (C - 8) ** 2) {
+      if (inDisc(pt.x, pt.y, C - 8)) {
         ctx.fillStyle = "#fff";
         ctx.fillRect(pt.x - 2.5, pt.y - 2.5, 5, 5);
+        ctx.strokeStyle = "rgba(0,0,0,0.7)";
+        ctx.lineWidth = 1;
+        ctx.strokeRect(pt.x - 2.5, pt.y - 2.5, 5, 5);
       }
     }
 
-    // opponents
+    // opponents: dots with threat rings in range, rim arrows beyond it
     for (const r of this.racers) {
       if (r.isPlayer) continue;
+      const dx = r.car.x - car.x, dz = r.car.z - car.z;
       const pt = toRadar(r.car.x, r.car.z);
-      if ((pt.x - C) ** 2 + (pt.y - C) ** 2 > (C - 7) ** 2) continue;
-      ctx.beginPath();
-      ctx.arc(pt.x, pt.y, 4, 0, Math.PI * 2);
-      ctx.fillStyle = "#" + new THREE.Color(r.color).getHexString();
-      ctx.fill();
-      ctx.lineWidth = 1;
-      ctx.strokeStyle = "rgba(0,0,0,0.6)";
-      ctx.stroke();
+      const col = "#" + new THREE.Color(r.color).getHexString();
+      if (inDisc(pt.x, pt.y, C - 8)) {
+        ctx.beginPath();
+        ctx.arc(pt.x, pt.y, 3.6, 0, Math.PI * 2);
+        ctx.fillStyle = col;
+        ctx.fill();
+        ctx.lineWidth = 1;
+        ctx.strokeStyle = "rgba(0,0,0,0.65)";
+        ctx.stroke();
+        // proximity ring: how urgently this opponent matters
+        if (pt.d < 26 || pt.d < 55) {
+          ctx.beginPath();
+          ctx.arc(pt.x, pt.y, 7, 0, Math.PI * 2);
+          ctx.strokeStyle = pt.d < 26 ? "rgba(255,69,58,0.85)" : "rgba(255,214,10,0.55)";
+          ctx.lineWidth = 1.4;
+          ctx.stroke();
+        }
+      } else {
+        // off-sensor: clamp to the rim as an outward arrow (bearing cue)
+        let rx = -dx * s + dz * c, ry = -(dx * c + dz * s);
+        const len = Math.hypot(rx, ry) || 1;
+        rx /= len; ry /= len;
+        const ax = C + rx * (C - 7), ay = C + ry * (C - 7);
+        const aAng = Math.atan2(ry, rx);
+        ctx.save();
+        ctx.translate(ax, ay);
+        ctx.rotate(aAng);
+        ctx.beginPath();
+        ctx.moveTo(4, 0); ctx.lineTo(-3, 3.2); ctx.lineTo(-3, -3.2);
+        ctx.closePath();
+        ctx.fillStyle = col;
+        ctx.globalAlpha = 0.75;
+        ctx.fill();
+        ctx.restore();
+        ctx.globalAlpha = 1;
+      }
     }
     ctx.restore();
+
+    // bezel rings
+    ctx.lineWidth = 1.5;
+    ctx.strokeStyle = "rgba(0,229,255,0.35)";
+    ctx.beginPath(); ctx.arc(C, C, C - 1.5, 0, Math.PI * 2); ctx.stroke();
+    ctx.lineWidth = 1;
+    ctx.strokeStyle = "rgba(255,255,255,0.10)";
+    ctx.beginPath(); ctx.arc(C, C, C - 4.5, 0, Math.PI * 2); ctx.stroke();
 
     // fixed player arrow at center pointing up (travel direction)
     ctx.save();
