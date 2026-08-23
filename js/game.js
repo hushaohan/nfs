@@ -893,23 +893,9 @@ class Game {
     ctx.arc(C, C, C - 1, 0, Math.PI * 2);
     ctx.clip();
 
-    // whisper-light backing: just enough tint to read on bright skies
-    const bg = ctx.createRadialGradient(C, C, 6, C, C, C);
-    bg.addColorStop(0, "rgba(7,11,20,0.22)");
-    bg.addColorStop(1, "rgba(7,11,20,0.55)");
-    ctx.fillStyle = bg;
+    // flat translucent backing
+    ctx.fillStyle = "rgba(8,11,18,0.45)";
     ctx.fillRect(0, 0, S, S);
-
-    // sweeping beam (feature-detected; skipped where unsupported)
-    if (typeof ctx.createConicGradient === "function") {
-      const ang = (performance.now() * 0.0009) % (Math.PI * 2);
-      const g = ctx.createConicGradient(ang, C, C);
-      g.addColorStop(0, "rgba(0,229,255,0)");
-      g.addColorStop(0.84, "rgba(0,229,255,0)");
-      g.addColorStop(1, "rgba(0,229,255,0.10)");
-      ctx.fillStyle = g;
-      ctx.fillRect(0, 0, S, S);
-    }
 
     // track ribbon: drawn far past the rim and faded out at the edge,
     // so the road always reaches (and dissolves beyond) the boundary
@@ -973,19 +959,8 @@ class Game {
       }
     }
 
-    // soft rim fade: everything above dissolves into the scene instead of
-    // ending against a hard circular wall
-    const fade = ctx.createRadialGradient(C, C, C * 0.66, C, C, C * 0.995);
-    fade.addColorStop(0, "rgba(0,0,0,0)");
-    fade.addColorStop(1, "rgba(0,0,0,1)");
-    ctx.globalCompositeOperation = "destination-out";
-    ctx.fillStyle = fade;
-    ctx.fillRect(0, 0, S, S);
-    ctx.globalCompositeOperation = "source-over";
-    ctx.restore();
-
     // opponents beyond range: crisp arrows pinned near the rim (drawn after
-    // the fade so bearings stay readable even though the road fades away)
+    // the clip so bearings stay readable right up to the boundary)
     for (const r of this.racers) {
       if (r.isPlayer) continue;
       const dx = r.car.x - car.x, dz = r.car.z - car.z;
@@ -1006,6 +981,7 @@ class Game {
       ctx.restore();
       ctx.globalAlpha = 1;
     }
+    ctx.restore();
 
     // fixed player arrow at center pointing up (travel direction)
     ctx.save();
