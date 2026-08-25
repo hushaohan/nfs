@@ -351,9 +351,30 @@ window.addEventListener("DOMContentLoaded", () => {
 
   // imported car models are embedded; decode them in the background and
   // refresh the selection UI when each lands
-  if (window.__preloadCarModels) window.__preloadCarModels();
+  const preloadDone = (window.__preloadCarModels ? window.__preloadCarModels() : Promise.resolve());
   document.addEventListener("carmodels-ready", () => {
     if (!document.getElementById("menu-car").classList.contains("hidden")) buildCarSelect();
     if (["lambo", "storm", "s7"].includes(game.selectedCar)) updateCarPreview();
   });
+
+  /* dev/visual-test URL params:
+   *   ?car=lambo        preselect a car
+   *   &screen=car       open the car selection screen
+   *   &autostart=1      jump straight into a race                      */
+  try {
+    const qs = new URLSearchParams(location.search);
+    const qCar = qs.get("car");
+    if (qCar && CAR_SPECS[qCar]) game.selectedCar = qCar;
+    preloadDone.then(() => {
+      if (qs.get("screen") === "car") {
+        buildCarSelect();
+        game._showScreen("menu-car");
+        updateMenuFooter();
+        updateCarPreview();
+        const cp = (typeof ensureCarPreview === "function") ? ensureCarPreview() : null;
+        if (cp) cp.show();
+      }
+      if (qs.get("autostart") === "1") game.startRace();
+    }).catch(() => {});
+  } catch (_) {}
 });

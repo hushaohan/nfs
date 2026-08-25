@@ -284,8 +284,6 @@ function splitMeshByHubs(mesh, hubs, maxPartDim) {
  *    round-robin across FL/FR/RL/RR
  *  • named-corner parts always win over distance heuristics        */
 function rigWheelsGeneric(group, hubs, spec, reg) {
-  const spinBy = { FL: [], FR: [], RL: [], RR: [] };
-  const staticBy = { FL: [], FR: [], RL: [], RR: [] };
   const raw = [];
   group.traverse(o => {
     if (!o.isMesh) return;
@@ -293,149 +291,83 @@ function rigWheelsGeneric(group, hubs, spec, reg) {
     if (kind) raw.push({ mesh: o, kind });
   });
 
-  const wheelDia = spec.wheelRadius * 2.2;
-  let rr = 0;                                   // round-robin counter
+  /* phase 1: classify raw meshes into corners */
+  const cornerMeshes = { FL: [], FR: [], RL: [], RR: [] };
   for (const item of raw) {
+    item.mesh.geometry.computeBoundingBox();
+    const c = new THREE.Vector3(); item.mesh.geometry.boundingBox.getCenter(c);
+    const ck = cornerOfName(item.mesh.name) || nearestHub(hubs, c.x, c.z);
+    cornerMeshes[ck].push(item.mesh);
     group.remove(item.mesh);
-    const pieces = splitMeshByHubs(item.mesh, hubs, wheelDia * 1.9) || [item.mesh];
-    for (const pc of pieces) {
-      pc.geometry.computeBoundingBox();
-      const bb = pc.geometry.boundingBox;
-      const c = new THREE.Vector3(); bb.getCenter(c);
-      const s = new THREE.Vector3(); bb.getSize(s);
-      const maxDim = Math.max(s.x, s.y, s.z);
-
-      let ck = cornerOfName(pc.name);
-      // origin-stacked identical wheels (broken conversions): deal out
-      // round-robin; otherwise snap by nearest physics hub
-      if (!ck && maxDim <= wheelDia) {
-        ck = CORNER_KEYS[rr % 4]; rr++;
-      } else if (!ck) {
-        ck = nearestHub(hubs, c.x, c.z);
-      }
-      (item.kind === "spin" ? spinBy : staticBy)[ck].push(pc);
-    }
   }
 
+  /* phase 2: mount each corner.
+   * Every candidate mesh is translated hub-local, then its TRIANGLES
+   * are partitioned by radial distance from the axle:
+   *   within R*1.15 -> spin group (rotates, perfectly balanced)
+   *   beyond        -> hold group (steers with fronts, never rotates)
+   * Rotors/calipers ride where their material kind places them.     */
   const wheels = [];
   for (const ck of CORNER_KEYS) {
+    const list = cornerMeshes[ck];
+    if (!list.length) continue;
     const wg = new THREE.Group();
     wg.name = "cwm_wheel_" + ck;
     wg.position.set(hubs[ck][0], hubs[ck][1], hubs[ck][2]);
-    const spin = new THREE.Group();
+    const spin = new THREE.Group();      // children[0]: game spins this
+    const hold = new THREE.Group();      // children[1]: contract filler
     wg.add(spin);
-    for (const p of spinBy[ck]) {
-      p.geometry.translate(-wg.position.x, -wg.position.y, -wg.position.z);
-      // only near-circular parts spin: true per-vertex orbit radius
-      // around the axle (local X through origin) must stay within the
-      // tire radius — anything lumpier would visibly wobble
-      p.geometry.computeBoundingBox();
-      const bb = new THREE.Box3().copy(p.geometry.boundingBox);
-      const s = new THREE.Vector3(); bb.getSize(s);
-      let rMax = 0;
-      if (!p.geometry.index || p.geometry.index.count <= 3) {
-        rMax = Math.max(s.x, s.y, s.z);            // tiny part: keep with wheel
-      } else {
-        const pos = p.geometry.attributes.position;
-        for (let i = 0; i < pos.count; i++) {
-          rMax = Math.max(rMax, Math.hypot(pos.getY(i), pos.getZ(i)));
+    wg.add(hold);
+    const shell = new THREE.Group();     // children[2+]: never rotated
+    wg.add(shell);
+
+    const R = spec.wheelRadius * 1.18;
+    for (const part of list) {
+      const g = part.geometry;
+      g.translate(-wg.position.x, -wg.position.y, -wg.position.z);
+      const pos = g.attributes.position;
+      const nor = g.attributes.normal;
+      const idx = g.index;
+      const triCount = Math.floor((idx ? idx.count : pos.count) / 3);
+      const gi = i => (idx ? idx.getX(i) : i);
+      const core = { pos: [], nor: [] };
+      const rim  = { pos: [], nor: [] };
+      for (let t = 0; t < triCount; t++) {
+        let rT = 0;
+        for (let k = 0; k < 3; k++) {
+          const id = gi(t * 3 + k);
+          rT = Math.max(rT, Math.hypot(pos.getY(id), pos.getZ(id)));
+        }
+        const dst = rT <= R ? core : rim;
+        for (let k = 0; k < 3; k++) {
+          const id = gi(t * 3 + k);
+          dst.pos.push(pos.getX(id), pos.getY(id), pos.getZ(id));
+          if (nor) dst.nor.push(nor.getX(id), nor.getY(id), nor.getZ(id));
         }
       }
-      if (rMax <= spec.wheelRadius * 1.18) spin.add(p);
-      else wg.add(p);                              // steers, never spins
+      const mk = b => {
+        if (!b.pos.length) return null;
+        const ng = new THREE.BufferGeometry();
+        ng.setAttribute("position", new THREE.Float32BufferAttribute(b.pos, 3));
+        if (b.nor.length === b.pos.length)
+          ng.setAttribute("normal", new THREE.Float32BufferAttribute(b.nor, 3));
+        ng.computeVertexNormals();
+        const mm = new THREE.Mesh(ng, part.material);
+        mm.name = part.name;
+        mm.castShadow = part.castShadow;
+        return mm;
+      };
+      const coreM = mk(core);
+      if (coreM) spin.add(coreM);
+      const rimM = mk(rim);
+      if (rimM) hold.add(rimM);
     }
-    for (const p of staticBy[ck]) {
-      p.geometry.translate(-wg.position.x, -wg.position.y, -wg.position.z);
-      wg.add(p);                       // calipers steer, never spin
-    }
+
     while (spin.children.length === 0) spin.add(new THREE.Group());
-    while (wg.children.length < 2) wg.add(new THREE.Group());
     wheels.push(wg);
     group.add(wg);
   }
   return wheels;
-}
-
-/* build one template: normalize ALL parts with one shared transform
- * (global bbox center + length scale), strip interior on mobile, snap
- * wheel groups onto physics hubs, apply signature tint */
-function buildCarTemplate(key) {
-  const reg = window.__CAR_MODEL_REGISTRY__[key];
-  const buf = window.__CAR_MODEL_CACHE__[key].buffer;
-  return GLTF.parseAsync(buf).then(parts => {
-    let kept = parts;
-    if (IS_MOBILE_DEVICE && reg.stripInteriorMobile && reg.interiorRe) {
-      kept = parts.filter(p => !reg.interiorRe.test(p.name) && !reg.interiorRe.test(p.materialName));
-    }
-    /* GLOBAL bounding box — never per-part, or the model's internal
-     * layout collapses */
-    const gb = new THREE.Box3();
-    const tb = new THREE.Box3();
-    for (const p of kept) {
-      p.geometry.computeBoundingBox();
-      gb.union(tb.copy(p.geometry.boundingBox));
-    }
-    const gSize = new THREE.Vector3(); gb.getSize(gSize);
-    const s = (reg.length || 4.9) / gSize.z;
-    const gc = new THREE.Vector3(); gb.getCenter(gc);
-
-    const tg = new THREE.Group();
-    const tailNames = [];
-    let ti = 0;
-    for (const p of kept) {
-      p.geometry.translate(-gc.x, -gb.min.y + 0.02, -gc.z);   // same vector for all
-      p.geometry.scale(s, s, s);
-      const mesh = new THREE.Mesh(p.geometry, p.material);
-      mesh.name = p.name;
-      mesh.userData.materialName = p.materialName;
-      mesh.castShadow = !/glass/i.test(p.materialName);
-      tg.add(mesh);
-      if (/(_RR_|spec_RR)/i.test(p.materialName)) {
-        mesh.name = "cwm_tail_" + ti++;
-        p.material.__isTail = true;
-        tailNames.push(mesh.name);
-      }
-    }
-
-    if (reg.tint) {
-      const byMat = new Map();
-      for (const p of kept) {
-        if (p.material.transparent || p.material.map) continue;
-        if (!byMat.has(p.materialName)) byMat.set(p.materialName, { tris: 0 });
-        byMat.get(p.materialName).tris +=
-          (p.geometry.index ? p.geometry.index.count : p.geometry.attributes.position.count) / 3;
-      }
-      let topName = null, topTris = 0;
-      for (const [n, v] of byMat) if (v.tris > topTris) { topTris = v.tris; topName = n; }
-      if (topName) {
-        const tintCol = new THREE.Color(reg.tint);
-        for (const p of kept) {
-          if (p.materialName === topName) {
-            p.material.color.lerp(tintCol, 0.82);
-            p.material.roughness = Math.min(p.material.roughness, 0.42);
-            p.material.metalness = Math.min(p.material.metalness + 0.25, 0.55);
-          }
-        }
-      }
-    }
-
-    const spec = CAR_SPECS[key];
-    const hw = spec.trackWidth / 2;
-    const zf = spec.wheelbase * spec.cgFront;
-    const zr = spec.wheelbase - zf;
-    const hubs = {
-      FL: [ hw, spec.wheelRadius,  zf],
-      FR: [-hw, spec.wheelRadius,  zf],
-      RL: [ hw, spec.wheelRadius, -zr],
-      RR: [-hw, spec.wheelRadius, -zr],
-    };
-    const wheels = rigWheelsGeneric(tg, hubs, spec, reg);
-    return {
-      template: tg,
-      wheelNames: wheels.map(w => w.name),
-      tailNames,
-    };
-  });
 }
 
 function _box(g, w, h, d, mat, x, y, z, rx) {
@@ -1072,7 +1004,7 @@ window.__preloadCarModels = function () {
       try { document.dispatchEvent(new Event("carmodels-ready")); } catch (_) {}
     }).catch(err => {
       window.__CAR_MODEL_CACHE__[key].failed = true;
-      console.warn("car model unavailable:", key, err && err.message);
+      console.warn("car model unavailable:", key, err && (err.stack || err.message));
       try { document.dispatchEvent(new Event("carmodels-ready")); } catch (_) {}
     });
   });
