@@ -592,7 +592,9 @@ class Game {
 
       // brake lights
       const braking = car._brakeLight;
-      r.mesh.userData.tailMat.color.setHex(braking ? 0xff2010 : 0x550000);
+      if (r.mesh.userData.tailMat) {
+        r.mesh.userData.tailMat.color.setHex(braking ? 0xff2010 : 0x550000);
+      }
 
       // drift smoke from rear wheels
       if (car.drifting && Math.abs(car.vx) > 4) {

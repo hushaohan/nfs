@@ -88,7 +88,10 @@ const GLTF = (() => {
     );
   }
 
-  /* sync pass: geometries + color materials (textures pending) */
+  /* sync pass: geometries + color materials (textures pending).
+   * Skips degenerate primitives (no triangles / non-finite bounds —
+   * common placeholder empties in Sketchfab exports) and fixes
+   * inside-out winding from mirrored export transforms.             */
   function buildParts(json, bin) {
     const out = [];
     const walk = (nodeIdx, parentMtx) => {
@@ -98,6 +101,22 @@ const GLTF = (() => {
         for (const prim of json.meshes[nd.mesh].primitives) {
           const geo = primitiveGeometry(json, bin, prim);
           geo.applyMatrix4(mtx);
+
+          // reject empties / broken bounds
+          geo.computeBoundingBox();
+          const b = geo.boundingBox;
+          const sz = new THREE.Vector3(); b.getSize(sz);
+          if (!Number.isFinite(b.min.x) || !Number.isFinite(sz.x)) continue;
+          if (sz.x * sz.y * sz.z === 0 && !geo.index) continue;
+
+          // mirrored transform baked in → reverse triangle winding
+          if (mtx.determinant() < 0 && geo.index) {
+            const ix = geo.index.array;
+            for (let i = 0; i < ix.length; i += 3) {
+              const t = ix[i]; ix[i] = ix[i + 2]; ix[i + 2] = t;
+            }
+            geo.index.needsUpdate = true;
+          }
           const mi = prim.material || 0;
           out.push({
             name: nd.name || "",
@@ -110,7 +129,7 @@ const GLTF = (() => {
       for (const c of nd.children || []) walk(c, mtx);
     };
     for (const n of json.scenes[json.scene || 0].nodes) walk(n, new THREE.Matrix4());
-    return out;
+    return out.filter(p => p.geometry.attributes.position.count > 0);
   }
 
   /* decode every embedded image and bind baseColor textures onto the
