@@ -27,13 +27,17 @@ const GLTF = (() => {
     return { json, bin };
   }
 
-  function readAccessor(json, bin, index) {
+  function readAccessor(json, bin, index, fileAbsolute) {
     const a = json.accessors[index];
     const comps = { SCALAR: 1, VEC2: 2, VEC3: 3, VEC4: 4, MAT4: 16 }[a.type];
     const compBytes = { 5120: 1, 5121: 1, 5122: 2, 5123: 2, 5125: 4, 5126: 4 }[a.componentType];
     const bv = json.bufferViews[a.bufferView || 0];
-    const start = bin.byteOffset + (bv.byteOffset || 0) + (a.byteOffset || 0);
-    const bytes = bin.slice(start, start + a.count * comps * compBytes); // aligned copy
+    // Some converters (observed: FetchCFD) emit bufferView byteOffsets
+    // relative to the FILE start instead of the BIN chunk start.
+    const base = (fileAbsolute ? 0 : bin.byteOffset) +
+      (bv.byteOffset || 0) + (a.byteOffset || 0);
+    const total = a.count * comps * compBytes;
+    const bytes = bin.slice(base, base + total);   // aligned copy
     let Arr = Float32Array;
     if (a.componentType === 5123) Arr = Uint16Array;
     else if (a.componentType === 5125) Arr = Uint32Array;
@@ -42,16 +46,16 @@ const GLTF = (() => {
     return new Arr(bytes.buffer);
   }
 
-  function primitiveGeometry(json, bin, prim) {
+  function primitiveGeometry(json, bin, prim, fileAbsolute) {
     const g = new THREE.BufferGeometry();
     g.setAttribute("position",
-      new THREE.BufferAttribute(readAccessor(json, bin, prim.attributes.POSITION), 3));
+      new THREE.BufferAttribute(readAccessor(json, bin, prim.attributes.POSITION, fileAbsolute), 3));
     if (prim.attributes.NORMAL !== undefined) {
       g.setAttribute("normal",
-        new THREE.BufferAttribute(readAccessor(json, bin, prim.attributes.NORMAL), 3));
+        new THREE.BufferAttribute(readAccessor(json, bin, prim.attributes.NORMAL, fileAbsolute), 3));
     }
     if (prim.indices !== undefined) {
-      g.setIndex(new THREE.BufferAttribute(readAccessor(json, bin, prim.indices), 1));
+      g.setIndex(new THREE.BufferAttribute(readAccessor(json, bin, prim.indices, fileAbsolute), 1));
     }
     if (prim.attributes.NORMAL === undefined) g.computeVertexNormals();
     return g;
@@ -105,15 +109,39 @@ const GLTF = (() => {
   /* sync pass: geometries + color materials (textures pending).
    * Skips degenerate primitives (no triangles / non-finite bounds —
    * common placeholder empties in Sketchfab exports) and fixes
-   * inside-out winding from mirrored export transforms.             */
+   * inside-out winding from mirrored export transforms.
+   * Auto-detects the byteOffset convention (BIN-relative vs FILE-
+   * absolute) by validating index ranges under both readings.        */
   function buildParts(json, bin) {
+    let parts = buildPartsImpl(json, bin, false);
+    if (indexViolations(parts) > 0) {
+      const alt = buildPartsImpl(json, bin, true);
+      if (indexViolations(alt) < indexViolations(parts)) parts = alt;
+    }
+    return parts;
+  }
+
+  function indexViolations(parts) {
+    let bad = 0;
+    for (const p of parts) {
+      const ix = p.geometry.index;
+      if (!ix) continue;
+      const vc = p.geometry.attributes.position.count;
+      for (let i = 0; i < ix.count; i++) {
+        if (ix.getX(i) >= vc) { bad++; break; }
+      }
+    }
+    return bad;
+  }
+
+  function buildPartsImpl(json, bin, fileAbsolute) {
     const out = [];
     const walk = (nodeIdx, parentMtx) => {
       const nd = json.nodes[nodeIdx];
       const mtx = parentMtx.clone().multiply(nodeMatrix(nd));
       if (nd.mesh !== undefined) {
         for (const prim of json.meshes[nd.mesh].primitives) {
-          const geo = primitiveGeometry(json, bin, prim);
+          const geo = primitiveGeometry(json, bin, prim, fileAbsolute);
           geo.applyMatrix4(mtx);
 
           // reject empties / broken bounds
