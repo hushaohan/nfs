@@ -71,15 +71,18 @@ Fixed 120 Hz physics substeps keep the integration stable.
 | FALCON GT    | Balanced, RWD | Enzo-inspired berlinetta — needle nose pod, flying buttresses, quad round tails |
 | VIPER X      | Top speed, AWD, 7-speed | Bugatti-inspired GT — two-tone, horseshoe grille, C-sweep flanks, dorsal spine |
 | KITSUNE RS   | Handling, light, RWD | Lambo-inspired wedge — hex intake, Y-signature DRLs, side scoops, louvers |
-| V12 GT       | Grand touring, AWD, 7-speed | **Imported 3D model** (Lambo V12 GT by Revolz, CC-BY) — see Credits |
+| V12 GT       | Grand touring, AWD, 7-speed | **Imported model** (Lambo V12 GT by Revolz, CC-BY) |
+| STORM GT     | Sports, AWD | **Imported model** (Sketchfab sports car, textured) |
+| S7 TWIN      | Le-Mans RWD twin-turbo, light | **Imported model** (Saleen S7-style, Sketchfab) |
 
-The V12 GT streams in the background (`assets/cars/lambo_v12_gt.glb`); its card
-appears in SELECT YOUR CAR once loading finishes. On phones the (hidden)
-interior meshes are skipped to save ~half the triangle load. Served over
-HTTP only (`fetch` needs it) — e.g. `python3 -m http.server`.
+Imported models stream in the background (`assets/cars/*.glb`); their cards
+show a LOADING badge until ready and fall back gracefully if unavailable.
+On phones the hidden interior meshes are skipped where applicable. Served
+over HTTP only (`fetch` needs it) — e.g. `python3 -m http.server`.
 
 ### Credits
-- **Lamborghini V12 GT model** by Revolz (Sketchfab), CC-BY 4.0 — converted via FetchCFD.
+- **Lamborghini V12 GT** by Revolz (Sketchfab), CC-BY 4.0 — converted via FetchCFD.
+- **STORM GT** and **S7 TWIN** models from Sketchfab by their respective authors (CC-BY).
 
 ## Tracks
 

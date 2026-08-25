@@ -47,20 +47,33 @@ function buildCarMesh(spec) {
   const cgToRear = spec.wheelbase - cgToFront;
   const ctx = { paintMat, darkMat, glassMat, chromeMat, cgToFront, cgToRear };
 
-  /* imported GLB car (V12 GT): assembled from cached buffer when it has
-   * finished loading; until then a procedural stand-in is used */
+  /* imported GLB cars: clone pre-rigged templates once loaded */
   let custom = false;
-  if (spec.design === "lambo") {
-    if (window.__CAR_MODEL_CACHE__ && window.__CAR_MODEL_CACHE__.lambo) {
-      _buildLamboModel(g, spec);
-      custom = true;
-    } else {
-      _carBodyKitsune(g, spec, ctx);   // placeholder until the GLB arrives
+  const entry = (window.__CAR_MODEL_REGISTRY__ || {})[spec.design];
+  if (entry && entry.template) {
+    const inst = entry.template.clone(true);
+    g.add(inst);
+    // THREE deep-copies userData via JSON on clone: re-bind live objects
+    g.userData.wheels = entry.wheelNames
+      .map(n => inst.getObjectByName(n))
+      .filter(Boolean);
+    for (const tn of entry.tailNames) {
+      const mesh = inst.getObjectByName(tn);
+      if (mesh) {                                   // private brake-light mat
+        mesh.material = mesh.material.clone();
+        g.userData.tailMat = mesh.material;
+      }
     }
+    custom = true;
   }
-  else if (spec.design === "hyper") _carBodyViper(g, spec, ctx);
-  else if (spec.design === "hatch") _carBodyKitsune(g, spec, ctx);
-  else _carBodyFalcon(g, spec, ctx);
+
+  if (!custom) {
+    if (spec.design === "hyper") _carBodyViper(g, spec, ctx);
+    else if (spec.design === "s7") _carBodyViper(g, spec, ctx);
+    else if (spec.design === "lambo" || spec.design === "storm") _carBodyViper(g, spec, ctx);
+    else if (spec.design === "hatch") _carBodyKitsune(g, spec, ctx);
+    else _carBodyFalcon(g, spec, ctx);
+  }
 
   /* ---- fender arches over each wheel (procedural cars only) ---- */
   if (!custom) {
@@ -123,65 +136,43 @@ function buildCarMesh(spec) {
       wheels.push(wg);
     }
     g.userData.wheels = wheels;
-  } else {
-    _rigLamboWheels(g);
   }
   g.userData.spec = spec;
   return g;
 }
 
 /* =====================================================================
- * Imported V12 GT model (Lambo V12 GT by Revolz, CC-BY)
- *   • GLTF.parse bakes node transforms into world-space geometries
- *   • normalized to ~4.9 m length, grounded at y=0, centered
- *   • wheels re-rigged to our contract by finding tyre/rotor materials
- *   • interior meshes skipped on mobile (invisible through tinted glass)
- * ===================================================================== */
-const IS_MOBILE_DEVICE = navigator.maxTouchPoints > 0 &&
-  Math.min(screen.width || 9999, screen.height || 9999) < 1024;
+ * Imported car models — registry of GLB templates.
+ * Each entry streams its file, normalizes scale/ground, applies
+ * signature rigging (wheel groups + tail-light material), then keeps a
+ * TEMPLATE group that buildCarMesh clones per instance.                */
+window.__CAR_MODEL_REGISTRY__ = {
+  lambo: {
+    url: "assets/cars/lambo_v12_gt.glb",
+    length: 4.9,
+    stripInteriorMobile: true,
+    interiorRe: /(belt|leather|blcarp|dials|xuni|int_|seat)/i,
+    rig: rigTyreRotorWheels,
+  },
+  storm: {
+    url: "assets/cars/storm_gt.glb",
+    length: 4.6,
+    stripInteriorMobile: true,
+    interiorRe: /^Interior/i,
+    rig: rigCornerNameWheels(/^(FL|FR|RR|RL)_/, /^(Caliper_(?:FL|FR|RR|RL))_/),
+  },
+  s7: {
+    url: "assets/cars/s7_twin.glb",
+    length: 4.35,
+    stripInteriorMobile: false,
+    rig: rigCornerNameWheels(/^saleen_(lf|rf|lr|rr)_/i, null),
+  },
+};
 
-const INTERIOR_RE = /(belt|leather|blcarp|dials|xuni|int_|seat)/i;
-
-function _buildLamboModel(g, spec) {
-  const parts = GLTF.parse(window.__CAR_MODEL_CACHE__.lambo);
-
-  // overall bounds after transform-baking
-  const bbox = new THREE.Box3();
-  const tmpBox = new THREE.Box3();
-  const kept = [];
-  for (const p of parts) {
-    p.geometry.computeBoundingBox();
-    tmpBox.copy(p.geometry.boundingBox);
-    if (IS_MOBILE_DEVICE && INTERIOR_RE.test(p.materialName)) continue;  // invisible on phones
-    bbox.union(tmpBox);
-    kept.push(p);
-  }
-  const size = new THREE.Vector3(); bbox.getSize(size);
-  const scale = 4.9 / size.z;                    // match sibling car lengths
-  const center = new THREE.Vector3(); bbox.getCenter(center);
-
-  const tailCandidates = [];
-  for (const p of kept) {
-    p.geometry.translate(-center.x, -bbox.min.y + 0.02, -center.z);
-    p.geometry.scale(scale, scale, scale);
-    const mesh = new THREE.Mesh(p.geometry, p.material);
-    mesh.castShadow = !/glass/i.test(p.materialName);
-    g.add(mesh);
-    if (/vehiclelights128__spec_RR/i.test(p.materialName)) tailCandidates.push(p.material);
-  }
-  // brake-light material: rear light meshes brighten under braking
-  if (tailCandidates.length) {
-    const tm = tailCandidates[0];
-    tm.color = new THREE.Color(0x550000);
-    g.userData.tailMat = tm;
-  }
-}
-
-/* find tyre meshes (+ their rotors), recentre each at its own hub and
- * rig into wheel groups satisfying children[0]=spin, children[1]=disc */
-function _rigLamboWheels(g) {
+/* --- rigger: tyre/rotor MATERIAL names (V12 GT) --- */
+function rigTyreRotorWheels(group) {
   const tyres = [], rotors = [], centers = new Map();
-  g.traverse(o => {
+  group.traverse(o => {
     if (!o.isMesh) return;
     o.geometry.computeBoundingBox();
     const c = new THREE.Vector3();
@@ -191,54 +182,163 @@ function _rigLamboWheels(g) {
     if (/tyre/i.test(mn)) tyres.push(o);
     else if (/rotor/i.test(mn)) rotors.push(o);
   });
-  if (!tyres.length) return;
-
   const wheels = [];
-  const usedRotors = new Set();
+  const used = new Set();
   for (const tyre of tyres) {
     const c = centers.get(tyre);
     const wg = new THREE.Group();
     wg.position.copy(c);
-    // recentre geometry around its own hub so spin/steer pivot correctly
     tyre.geometry.translate(-c.x, -c.y, -c.z);
     const spin = new THREE.Group();
     spin.add(tyre);
     wg.add(spin);
-
-    // nearest unused rotor becomes this wheel's disc child
     let best = null, bestD = Infinity;
     for (const rotor of rotors) {
-      if (usedRotors.has(rotor)) continue;
-      const rc = centers.get(rotor);
-      const d = rc.distanceTo(c);
+      if (used.has(rotor)) continue;
+      const d = centers.get(rotor).distanceTo(c);
       if (d < bestD) { bestD = d; best = rotor; }
     }
     if (best) {
-      usedRotors.add(best);
+      used.add(best);
       best.geometry.translate(-c.x, -c.y, -c.z);
-      spin.add(best);            // spins with the wheel
+      spin.add(best);
     }
-    // ensure a second child exists for the contract
     if (!wg.children[1]) wg.add(new THREE.Group());
     wheels.push(wg);
-    g.add(wg);
+    group.add(wg);
   }
-  g.userData.wheels = wheels;
+  return wheels;
 }
 
-/* preload hook — called once from main.js boot */
-window.__CAR_MODEL_CACHE__ = { lambo: null };
+/* --- rigger: corner NAME patterns (FL/FR/RR/RL or saleen_lf_ …) --- */
+function rigCornerNameWheels(wheelRe, discRe) {
+  return function (group) {
+    const corners = new Map();          // cornerId -> {parts:[], center}
+    const discs = [];
+    group.traverse(o => {
+      if (!o.isMesh) return;
+      const nw = o.name.match(wheelRe);
+      if (nw) {
+        const id = (nw[1] || nw[0]).toUpperCase();
+        if (!corners.has(id)) corners.set(id, []);
+        corners.get(id).push(o);
+        return;
+      }
+      if (discRe) {
+        const nd = o.name.match(discRe);
+        if (nd) { discs.push({ mesh: o, id: nd[1].toUpperCase() }); return; }
+      }
+    });
+    const wheels = [];
+    for (const [id, parts] of corners) {
+      const box = new THREE.Box3();
+      const tb = new THREE.Box3();
+      const c = new THREE.Vector3();
+      for (const p of parts) {
+        p.geometry.computeBoundingBox();
+        box.union(p.geometry.boundingBox);
+      }
+      box.getCenter(c);
+      const wg = new THREE.Group();
+      wg.name = "cwm_wheel_" + id;
+      wg.position.copy(c);
+      const spin = new THREE.Group();
+      wg.add(spin);
+      for (const p of parts) {
+        p.geometry.translate(-c.x, -c.y, -c.z);
+        spin.add(p);
+      }
+      const cal = discs.filter(d => d.id === id && !d.used);
+      for (const d of cal) {
+        d.used = true;
+        d.mesh.geometry.translate(-c.x, -c.y, -c.z);
+        spin.add(d.mesh);              // calipers ride with the wheel visually
+      }
+      wheels.push(wg);
+      group.add(wg);
+    }
+    // contract safety net
+    let i = 0;
+    for (const wg of wheels) {
+      if (!wg.children[1]) wg.add(new THREE.Group());
+      void i; i++;
+    }
+    return wheels;
+  };
+}
+
+/* build one template: normalize, strip, rig, mark tail material */
+function buildCarTemplate(key) {
+  const reg = window.__CAR_MODEL_REGISTRY__[key];
+  const buf = window.__CAR_MODEL_CACHE__[key].buffer;
+  return GLTF.parseAsync(buf).then(parts => {
+    let kept = parts;
+    if (IS_MOBILE_DEVICE && reg.stripInteriorMobile && reg.interiorRe) {
+      kept = parts.filter(p => !reg.interiorRe.test(p.name) && !reg.interiorRe.test(p.materialName));
+    }
+    const bbox = new THREE.Box3();
+    const tmp = new THREE.Box3();
+    for (const p of kept) {
+      p.geometry.computeBoundingBox();
+      bbox.union(tmp.copy(p.geometry.boundingBox));
+    }
+    const size = new THREE.Vector3(); bbox.getSize(size);
+    const s = (reg.length || 4.9) / size.z;
+    const center = new THREE.Vector3(); bbox.getCenter(center);
+
+    const tg = new THREE.Group();
+    const tailNames = [];
+    let ti = 0;
+    for (const p of kept) {
+      p.geometry.translate(-center.x, -bbox.min.y + 0.02, -center.z);
+      p.geometry.scale(s, s, s);
+      const mesh = new THREE.Mesh(p.geometry, p.material);
+      mesh.name = p.name;                    // riggers match on node names
+      mesh.castShadow = !/glass/i.test(p.materialName);
+      tg.add(mesh);
+      if (/(_RR_|spec_RR)/i.test(p.materialName)) {
+        mesh.name = "cwm_tail_" + ti++;
+        p.material.__isTail = true;
+        tailNames.push(mesh.name);
+      }
+    }
+    const wheels = reg.rig(tg);
+    return {
+      template: tg,
+      wheelNames: wheels.map((w, i) => { w.name = "cwm_wheel_" + i; return w.name; }),
+      tailNames,
+    };
+  });
+}
+
+/* stream every registered model */
+window.__CAR_MODEL_CACHE__ = {};
+const IS_MOBILE_DEVICE = navigator.maxTouchPoints > 0 &&
+  Math.min(screen.width || 9999, screen.height || 9999) < 1024;
+
 window.__preloadCarModels = function () {
-  if (window.__CAR_MODEL_CACHE__.lamboPromise) return window.__CAR_MODEL_CACHE__.lamboPromise;
-  window.__CAR_MODEL_CACHE__.lamboPromise = fetch("assets/cars/lambo_v12_gt.glb")
-    .then(r => { if (!r.ok) throw new Error(r.status); return r.arrayBuffer(); })
-    .then(buf => {
-      window.__CAR_MODEL_CACHE__.lambo = buf;
-      document.dispatchEvent(new Event("carmodels-ready"));
-    })
-    .catch(() => { /* file:// or missing asset: procedural fallback stays */ });
-  return window.__CAR_MODEL_CACHE__.lamboPromise;
+  const jobs = Object.entries(window.__CAR_MODEL_REGISTRY__).map(([key, reg]) => {
+    window.__CAR_MODEL_CACHE__[key] = { ready: false, failed: false };
+    return fetch(reg.url)
+      .then(r => { if (!r.ok) throw new Error(r.status); return r.arrayBuffer(); })
+      .then(buf => {
+        window.__CAR_MODEL_CACHE__[key].buffer = buf;
+        return buildCarTemplate(key);
+      })
+      .then(t => {
+        Object.assign(window.__CAR_MODEL_REGISTRY__[key], t);
+        window.__CAR_MODEL_CACHE__[key].ready = true;
+        document.dispatchEvent(new Event("carmodels-ready"));
+      })
+      .catch(err => {
+        window.__CAR_MODEL_CACHE__[key].failed = true;
+        console.warn("car model unavailable:", key, err && err.message);
+        document.dispatchEvent(new Event("carmodels-ready"));
+      });
+  });
+  return Promise.all(jobs);
 };
+
 
 function _box(g, w, h, d, mat, x, y, z, rx) {
   const m = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), mat);

@@ -122,6 +122,13 @@ h2 { font-size: 34px; letter-spacing: 4px; margin-bottom: 28px; font-style: ital
 .car-card:hover { border-color: var(--accent2); transform: translateY(-3px); }
 .car-card.selected { border-color: var(--accent); background: rgba(255,59,48,0.14); box-shadow: 0 0 24px rgba(255,59,48,0.25); }
 .car-card .car-name { font-weight: 800; font-size: 17px; letter-spacing: 1px; margin-bottom: 2px; }
+.car-loading {
+  display: inline-block; margin-left: 6px; padding: 2px 6px;
+  font-size: 9px; letter-spacing: 2px; color: var(--accent2);
+  border: 1px solid var(--accent2); border-radius: 4px;
+  animation: pulse 1.2s ease-in-out infinite;
+}
+@keyframes pulse { 50% { opacity: 0.35; } }
 .car-card .car-class { color: var(--accent2); font-size: 11px; letter-spacing: 3px; margin-bottom: 12px; }
 .car-card .track-meta {
   display: flex; justify-content: space-between; gap: 8px;

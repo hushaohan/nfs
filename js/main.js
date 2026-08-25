@@ -26,17 +26,18 @@ function updateCarPreview() {
 function buildCarSelect() {
   const grid = $("car-grid");
   grid.innerHTML = "";
-  const modelReady = window.__CAR_MODEL_CACHE__ && !!window.__CAR_MODEL_CACHE__.lambo;
   for (const key of Object.keys(CAR_SPECS)) {
-    if (key === "lambo" && !modelReady) continue;   // card appears once GLB loads
     const spec = CAR_SPECS[key];
+    const reg = (window.__CAR_MODEL_REGISTRY__ || {})[key];
+    const cache = (window.__CAR_MODEL_CACHE__ || {})[key];
+    const pending = !!(reg && !cache?.ready && !cache?.failed);
     const card = document.createElement("div");
     card.className = "car-card" + (key === game.selectedCar ? " selected" : "");
     card.dataset.key = key;
     const statBar = (label, v) =>
       `<div class="stat-row"><span class="stat-label">${label}</span><div class="stat-bar"><i style="width:${Math.round(v * 100)}%"></i></div></div>`;
     card.innerHTML = `
-      <div class="car-name">${spec.name}</div>
+      <div class="car-name">${spec.name}${pending ? ' <span class="car-loading">LOADING…</span>' : ""}</div>
       <div class="car-class">${spec.cls}</div>
       ${statBar("SPEED", spec.stats.speed)}
       ${statBar("ACCEL", spec.stats.accel)}
