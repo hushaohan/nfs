@@ -26,7 +26,9 @@ function updateCarPreview() {
 function buildCarSelect() {
   const grid = $("car-grid");
   grid.innerHTML = "";
+  const modelReady = window.__CAR_MODEL_CACHE__ && !!window.__CAR_MODEL_CACHE__.lambo;
   for (const key of Object.keys(CAR_SPECS)) {
+    if (key === "lambo" && !modelReady) continue;   // card appears once GLB loads
     const spec = CAR_SPECS[key];
     const card = document.createElement("div");
     card.className = "car-card" + (key === game.selectedCar ? " selected" : "");
@@ -338,4 +340,12 @@ window.addEventListener("DOMContentLoaded", () => {
   wireButtons();
   setupTouch();
   game.init($("game-canvas"));
+
+  // stream the imported V12 GT model in the background; when it lands,
+  // reveal its card (if the car menu is open) and refresh the preview
+  if (window.__preloadCarModels) window.__preloadCarModels();
+  document.addEventListener("carmodels-ready", () => {
+    if (!document.getElementById("menu-car").classList.contains("hidden")) buildCarSelect();
+    if (game.selectedCar === "lambo") updateCarPreview();
+  });
 });

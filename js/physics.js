@@ -443,6 +443,23 @@ const CAR_SPECS = {
     nitroBoost: 1.50, nitroDrain: 0.28, nitroRegen: 0.06,
     stats: { speed: 0.70, accel: 0.76, grip: 0.95, nitro: 0.70 },
   },
+  lambo: {
+    name: "V12 GT", cls: "GRAND TOURER · AWD", design: "lambo",
+    color: 0xd8dade, accent: 0x101014,
+    mass: 1650, inertia: 2850,
+    wheelbase: 2.70, cgFront: 0.485, cgHeight: 0.46, trackWidth: 1.90, wheelRadius: 0.35,
+    maxSteer: 0.62, steerRate: 3.2, steerSpeedFall: 0.016,
+    tire: { B: 11.8, C: 1.40, D: 1.66, E: -0.34, loadSens: -0.12 },
+    engine: { maxTorque: 720, redline: 8500, idle: 950, shiftUp: 0.96, shiftDown: 0.44 },
+    gears: [3.3, 2.1, 1.5, 1.15, 0.92, 0.75, 0.62], finalDrive: 3.20,
+    driveBias: 0.42, drivetrainEff: 0.84,
+    brakeForce: 22500, brakeBias: 0.60, reverseForce: 8000,
+    dragCoef: 0.56, downforce: 3.2, rollResist: 0.011,
+    handbrakeGrip: 0.38, handbrakeForce: 8800,
+    yawDamping: 300, yawFriction: 0.55,
+    nitroBoost: 1.62, nitroDrain: 0.31, nitroRegen: 0.05,
+    stats: { speed: 0.96, accel: 0.85, grip: 0.74, nitro: 0.88 },
+  },
 };
 
 if (typeof module !== "undefined" && module.exports) {

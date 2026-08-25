@@ -47,73 +47,198 @@ function buildCarMesh(spec) {
   const cgToRear = spec.wheelbase - cgToFront;
   const ctx = { paintMat, darkMat, glassMat, chromeMat, cgToFront, cgToRear };
 
-  if (spec.design === "hyper") _carBodyViper(g, spec, ctx);
+  /* imported GLB car (V12 GT): assembled from cached buffer when it has
+   * finished loading; until then a procedural stand-in is used */
+  let custom = false;
+  if (spec.design === "lambo") {
+    if (window.__CAR_MODEL_CACHE__ && window.__CAR_MODEL_CACHE__.lambo) {
+      _buildLamboModel(g, spec);
+      custom = true;
+    } else {
+      _carBodyKitsune(g, spec, ctx);   // placeholder until the GLB arrives
+    }
+  }
+  else if (spec.design === "hyper") _carBodyViper(g, spec, ctx);
   else if (spec.design === "hatch") _carBodyKitsune(g, spec, ctx);
   else _carBodyFalcon(g, spec, ctx);
 
-  /* ---- fender arches over each wheel ---- */
-  const archR = spec.wheelRadius + 0.16;
-  const archGeo = new THREE.TorusGeometry(archR, 0.10, 6, 14, Math.PI);
-  archGeo.rotateY(Math.PI / 2);
-  const archX = spec.trackWidth / 2;
-  for (const az of [cgToFront, -cgToRear]) {
-    for (const sx of [-archX, archX]) {
-      const arch = new THREE.Mesh(archGeo, paintMat);
-      arch.position.set(sx, spec.wheelRadius * 0.95, az);
-      arch.scale.set(1.15, 1.0, 1.0);
-      arch.castShadow = true;
-      g.add(arch);
+  /* ---- fender arches over each wheel (procedural cars only) ---- */
+  if (!custom) {
+    const archR = spec.wheelRadius + 0.16;
+    const archGeo = new THREE.TorusGeometry(archR, 0.10, 6, 14, Math.PI);
+    archGeo.rotateY(Math.PI / 2);
+    const archX = spec.trackWidth / 2;
+    for (const az of [cgToFront, -cgToRear]) {
+      for (const sx of [-archX, archX]) {
+        const arch = new THREE.Mesh(archGeo, paintMat);
+        arch.position.set(sx, spec.wheelRadius * 0.95, az);
+        arch.scale.set(1.15, 1.0, 1.0);
+        arch.castShadow = true;
+        g.add(arch);
+      }
     }
-  }
 
-  /* ---- wheels: tire + rim + brake disc ---- */
-  const r = spec.wheelRadius;
-  const tireMat = new THREE.MeshStandardMaterial({ color: 0x101010, roughness: 0.92 });
-  const rimMat  = new THREE.MeshStandardMaterial({ color: 0xd6dae2, roughness: 0.2, metalness: 0.9 });
-  const discMat = new THREE.MeshStandardMaterial({ color: 0x7a7f88, roughness: 0.35, metalness: 0.85 });
+    /* ---- wheels: tire + rim + brake disc ---- */
+    const r = spec.wheelRadius;
+    const tireMat = new THREE.MeshStandardMaterial({ color: 0x101010, roughness: 0.92 });
+    const rimMat  = new THREE.MeshStandardMaterial({ color: 0xd6dae2, roughness: 0.2, metalness: 0.9 });
+    const discMat = new THREE.MeshStandardMaterial({ color: 0x7a7f88, roughness: 0.35, metalness: 0.85 });
 
-  const tireGeo = new THREE.TorusGeometry(r - 0.085, 0.085, 10, 20);
-  tireGeo.rotateY(Math.PI / 2);
-  const barrelGeo = new THREE.CylinderGeometry(r * 0.60, r * 0.60, 0.20, 14, 1, true);
-  barrelGeo.rotateZ(Math.PI / 2);
-  const spokeGeo = new THREE.BoxGeometry(0.055, r * 0.58, 0.10);
-  const hubGeo = new THREE.CylinderGeometry(0.075, 0.075, 0.24, 8);
-  hubGeo.rotateZ(Math.PI / 2);
-  const discGeo = new THREE.CylinderGeometry(r * 0.42, r * 0.42, 0.035, 18);
-  discGeo.rotateZ(Math.PI / 2);
+    const tireGeo = new THREE.TorusGeometry(r - 0.085, 0.085, 10, 20);
+    tireGeo.rotateY(Math.PI / 2);
+    const barrelGeo = new THREE.CylinderGeometry(r * 0.60, r * 0.60, 0.20, 14, 1, true);
+    barrelGeo.rotateZ(Math.PI / 2);
+    const spokeGeo = new THREE.BoxGeometry(0.055, r * 0.58, 0.10);
+    const hubGeo = new THREE.CylinderGeometry(0.075, 0.075, 0.24, 8);
+    hubGeo.rotateZ(Math.PI / 2);
+    const discGeo = new THREE.CylinderGeometry(r * 0.42, r * 0.42, 0.035, 18);
+    discGeo.rotateZ(Math.PI / 2);
 
-  const wheels = [];
-  const positions = [
-    [-spec.trackWidth / 2, r,  cgToFront],
-    [ spec.trackWidth / 2, r,  cgToFront],
-    [-spec.trackWidth / 2, r, -cgToRear],
-    [ spec.trackWidth / 2, r, -cgToRear],
-  ];
-  for (const p of positions) {
-    const wg = new THREE.Group();
-    const spin = new THREE.Group();
-    const tire = new THREE.Mesh(tireGeo, tireMat);
-    tire.castShadow = true;
-    spin.add(tire);
-    spin.add(new THREE.Mesh(barrelGeo, rimMat));
-    for (let sIdx = 0; sIdx < 6; sIdx++) {
-      const spoke = new THREE.Mesh(spokeGeo, rimMat);
-      const a = (sIdx / 6) * Math.PI * 2;
-      spoke.position.set(0, Math.cos(a) * r * 0.30, Math.sin(a) * r * 0.30);
-      spoke.rotation.x = a;
-      spin.add(spoke);
+    const wheels = [];
+    const positions = [
+      [-spec.trackWidth / 2, r,  cgToFront],
+      [ spec.trackWidth / 2, r,  cgToFront],
+      [-spec.trackWidth / 2, r, -cgToRear],
+      [ spec.trackWidth / 2, r, -cgToRear],
+    ];
+    for (const p of positions) {
+      const wg = new THREE.Group();
+      const spin = new THREE.Group();
+      const tire = new THREE.Mesh(tireGeo, tireMat);
+      tire.castShadow = true;
+      spin.add(tire);
+      spin.add(new THREE.Mesh(barrelGeo, rimMat));
+      for (let sIdx = 0; sIdx < 6; sIdx++) {
+        const spoke = new THREE.Mesh(spokeGeo, rimMat);
+        const a = (sIdx / 6) * Math.PI * 2;
+        spoke.position.set(0, Math.cos(a) * r * 0.30, Math.sin(a) * r * 0.30);
+        spoke.rotation.x = a;
+        spin.add(spoke);
+      }
+      spin.add(new THREE.Mesh(hubGeo, rimMat));
+      const disc = new THREE.Mesh(discGeo, discMat);
+      wg.add(spin, disc);
+      wg.position.set(p[0], p[1], p[2]);
+      g.add(wg);
+      wheels.push(wg);
     }
-    spin.add(new THREE.Mesh(hubGeo, rimMat));
-    const disc = new THREE.Mesh(discGeo, discMat);
-    wg.add(spin, disc);
-    wg.position.set(p[0], p[1], p[2]);
-    g.add(wg);
-    wheels.push(wg);
+    g.userData.wheels = wheels;
+  } else {
+    _rigLamboWheels(g);
   }
-  g.userData.wheels = wheels;
   g.userData.spec = spec;
   return g;
 }
+
+/* =====================================================================
+ * Imported V12 GT model (Lambo V12 GT by Revolz, CC-BY)
+ *   • GLTF.parse bakes node transforms into world-space geometries
+ *   • normalized to ~4.9 m length, grounded at y=0, centered
+ *   • wheels re-rigged to our contract by finding tyre/rotor materials
+ *   • interior meshes skipped on mobile (invisible through tinted glass)
+ * ===================================================================== */
+const IS_MOBILE_DEVICE = navigator.maxTouchPoints > 0 &&
+  Math.min(screen.width || 9999, screen.height || 9999) < 1024;
+
+const INTERIOR_RE = /(belt|leather|blcarp|dials|xuni|int_|seat)/i;
+
+function _buildLamboModel(g, spec) {
+  const parts = GLTF.parse(window.__CAR_MODEL_CACHE__.lambo);
+
+  // overall bounds after transform-baking
+  const bbox = new THREE.Box3();
+  const tmpBox = new THREE.Box3();
+  const kept = [];
+  for (const p of parts) {
+    p.geometry.computeBoundingBox();
+    tmpBox.copy(p.geometry.boundingBox);
+    if (IS_MOBILE_DEVICE && INTERIOR_RE.test(p.materialName)) continue;  // invisible on phones
+    bbox.union(tmpBox);
+    kept.push(p);
+  }
+  const size = new THREE.Vector3(); bbox.getSize(size);
+  const scale = 4.9 / size.z;                    // match sibling car lengths
+  const center = new THREE.Vector3(); bbox.getCenter(center);
+
+  const tailCandidates = [];
+  for (const p of kept) {
+    p.geometry.translate(-center.x, -bbox.min.y + 0.02, -center.z);
+    p.geometry.scale(scale, scale, scale);
+    const mesh = new THREE.Mesh(p.geometry, p.material);
+    mesh.castShadow = !/glass/i.test(p.materialName);
+    g.add(mesh);
+    if (/vehiclelights128__spec_RR/i.test(p.materialName)) tailCandidates.push(p.material);
+  }
+  // brake-light material: rear light meshes brighten under braking
+  if (tailCandidates.length) {
+    const tm = tailCandidates[0];
+    tm.color = new THREE.Color(0x550000);
+    g.userData.tailMat = tm;
+  }
+}
+
+/* find tyre meshes (+ their rotors), recentre each at its own hub and
+ * rig into wheel groups satisfying children[0]=spin, children[1]=disc */
+function _rigLamboWheels(g) {
+  const tyres = [], rotors = [], centers = new Map();
+  g.traverse(o => {
+    if (!o.isMesh) return;
+    o.geometry.computeBoundingBox();
+    const c = new THREE.Vector3();
+    o.geometry.boundingBox.getCenter(c);
+    centers.set(o, c);
+    const mn = o.material.name || "";
+    if (/tyre/i.test(mn)) tyres.push(o);
+    else if (/rotor/i.test(mn)) rotors.push(o);
+  });
+  if (!tyres.length) return;
+
+  const wheels = [];
+  const usedRotors = new Set();
+  for (const tyre of tyres) {
+    const c = centers.get(tyre);
+    const wg = new THREE.Group();
+    wg.position.copy(c);
+    // recentre geometry around its own hub so spin/steer pivot correctly
+    tyre.geometry.translate(-c.x, -c.y, -c.z);
+    const spin = new THREE.Group();
+    spin.add(tyre);
+    wg.add(spin);
+
+    // nearest unused rotor becomes this wheel's disc child
+    let best = null, bestD = Infinity;
+    for (const rotor of rotors) {
+      if (usedRotors.has(rotor)) continue;
+      const rc = centers.get(rotor);
+      const d = rc.distanceTo(c);
+      if (d < bestD) { bestD = d; best = rotor; }
+    }
+    if (best) {
+      usedRotors.add(best);
+      best.geometry.translate(-c.x, -c.y, -c.z);
+      spin.add(best);            // spins with the wheel
+    }
+    // ensure a second child exists for the contract
+    if (!wg.children[1]) wg.add(new THREE.Group());
+    wheels.push(wg);
+    g.add(wg);
+  }
+  g.userData.wheels = wheels;
+}
+
+/* preload hook — called once from main.js boot */
+window.__CAR_MODEL_CACHE__ = { lambo: null };
+window.__preloadCarModels = function () {
+  if (window.__CAR_MODEL_CACHE__.lamboPromise) return window.__CAR_MODEL_CACHE__.lamboPromise;
+  window.__CAR_MODEL_CACHE__.lamboPromise = fetch("assets/cars/lambo_v12_gt.glb")
+    .then(r => { if (!r.ok) throw new Error(r.status); return r.arrayBuffer(); })
+    .then(buf => {
+      window.__CAR_MODEL_CACHE__.lambo = buf;
+      document.dispatchEvent(new Event("carmodels-ready"));
+    })
+    .catch(() => { /* file:// or missing asset: procedural fallback stays */ });
+  return window.__CAR_MODEL_CACHE__.lamboPromise;
+};
 
 function _box(g, w, h, d, mat, x, y, z, rx) {
   const m = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), mat);
