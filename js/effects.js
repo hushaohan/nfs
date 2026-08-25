@@ -813,6 +813,86 @@ if (typeof IS_MOBILE_DEVICE === "undefined") {
     Math.min(screen.width || 9999, screen.height || 9999) < 1024;
 }
 
+/* build one template: normalize, strip interior on mobile, snap wheel
+ * groups onto physics hubs, apply signature tint */
+function buildCarTemplate(key) {
+  const reg = window.__CAR_MODEL_REGISTRY__[key];
+  const buf = window.__CAR_MODEL_CACHE__[key].buffer;
+  return GLTF.parseAsync(buf).then(parts => {
+    let kept = parts;
+    if (IS_MOBILE_DEVICE && reg.stripInteriorMobile && reg.interiorRe) {
+      kept = parts.filter(p => !reg.interiorRe.test(p.name) && !reg.interiorRe.test(p.materialName));
+    }
+    const bbox = new THREE.Box3();
+    const tmp = new THREE.Box3();
+    for (const p of kept) {
+      p.geometry.computeBoundingBox();
+      bbox.union(tmp.copy(p.geometry.boundingBox));
+    }
+    const size = new THREE.Vector3(); bbox.getSize(size);
+    const s = (reg.length || 4.9) / size.z;
+    const center = new THREE.Vector3(); bbox.getCenter(center);
+
+    const tg = new THREE.Group();
+    const tailNames = [];
+    let ti = 0;
+    for (const p of kept) {
+      p.geometry.translate(-center.x, -bbox.min.y + 0.02, -center.z);
+      p.geometry.scale(s, s, s);
+      const mesh = new THREE.Mesh(p.geometry, p.material);
+      mesh.name = p.name;                    // riggers match on node names
+      mesh.castShadow = !/glass/i.test(p.materialName);
+      tg.add(mesh);
+      if (/(_RR_|spec_RR)/i.test(p.materialName)) {
+        mesh.name = "cwm_tail_" + ti++;
+        p.material.__isTail = true;
+        tailNames.push(mesh.name);
+      }
+    }
+
+    /* signature paint: dominant opaque material takes the identity color */
+    if (reg.tint) {
+      const byMat = new Map();
+      for (const p of kept) {
+        if (p.material.transparent || p.material.map) continue;
+        if (!byMat.has(p.materialName)) byMat.set(p.materialName, { tris: 0 });
+        byMat.get(p.materialName).tris +=
+          (p.geometry.index ? p.geometry.index.count : p.geometry.attributes.position.count) / 3;
+      }
+      let topName = null, topTris = 0;
+      for (const [n, v] of byMat) if (v.tris > topTris) { topTris = v.tris; topName = n; }
+      if (topName) {
+        const tintCol = new THREE.Color(reg.tint);
+        for (const p of kept) {
+          if (p.materialName === topName) {
+            p.material.color.lerp(tintCol, 0.82);
+            p.material.roughness = Math.min(p.material.roughness, 0.42);
+            p.material.metalness = Math.min(p.material.metalness + 0.25, 0.55);
+          }
+        }
+      }
+    }
+
+    /* wheels snap onto the PHYSICS hub positions */
+    const spec = CAR_SPECS[key];
+    const hw = spec.trackWidth / 2;
+    const zf = spec.wheelbase * spec.cgFront;
+    const zr = spec.wheelbase - zf;
+    const hubs = {
+      FL: [ hw, spec.wheelRadius,  zf],
+      FR: [-hw, spec.wheelRadius,  zf],
+      RL: [ hw, spec.wheelRadius, -zr],
+      RR: [-hw, spec.wheelRadius, -zr],
+    };
+    const wheels = reg.rig(tg, hubs, spec);
+    return {
+      template: tg,
+      wheelNames: wheels.map(w => w.name),
+      tailNames,
+    };
+  });
+}
+
 function _b64ToBuffer(b64) {
   if (typeof atob === "function") {
     const bin = atob(b64);
