@@ -68,7 +68,7 @@ global.THREE.WebGLRenderer = class {
 };
 
 /* ---------- load game scripts ---------- */
-for (const f of ["js/textures.js", "js/physics.js", "js/track.js", "js/audio.js", "js/ai.js", "js/effects.js", "js/game.js", "js/main.js"]) {
+for (const f of ["js/textures.js", "js/gltf.js", "js/car_models_data.js", "js/physics.js", "js/track.js", "js/audio.js", "js/ai.js", "js/effects.js", "js/game.js", "js/main.js"]) {
   vm.runInThisContext(fs.readFileSync(f, "utf8"), { filename: f });
 }
 
