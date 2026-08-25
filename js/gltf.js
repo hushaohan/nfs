@@ -60,10 +60,24 @@ const GLTF = (() => {
   function buildMaterial(m) {
     const pbr = m.pbrMetallicRoughness || {};
     const bcf = pbr.baseColorFactor || [1, 1, 1, 1];
+    let col = new THREE.Color(bcf[0], bcf[1], bcf[2]);
+
+    // Many web exports author black albedo expecting texture multipliers
+    // that never arrive here, and default to full-metal (black under our
+    // lighting). Lift ultra-dark diffuse into a visible gunmetal range and
+    // clamp metallic/rough so surfaces shade instead of vanishing.
+    const lum = 0.2126 * col.r + 0.7152 * col.g + 0.0722 * col.b;
+    if (lum < 0.05) {
+      // true blacks (texture-multiplier albedo) get lerped to visible
+      // gunmetal instead of scaled — multiplying zero is still zero
+      const t = Math.min(1, (0.05 - lum) / 0.05);
+      col.lerp(new THREE.Color(0.42, 0.44, 0.47), t);
+    }
+
     const mat = new THREE.MeshStandardMaterial({
-      color: new THREE.Color(bcf[0], bcf[1], bcf[2]),
-      metalness: pbr.metallicFactor !== undefined ? pbr.metallicFactor : 1,
-      roughness: pbr.roughnessFactor !== undefined ? pbr.roughnessFactor : 1,
+      color: col,
+      metalness: Math.min(pbr.metallicFactor !== undefined ? pbr.metallicFactor : 1, 0.4),
+      roughness: Math.max(pbr.roughnessFactor !== undefined ? pbr.roughnessFactor : 1, 0.42),
     });
     if (bcf[3] !== undefined && bcf[3] < 0.98) { mat.transparent = true; mat.opacity = bcf[3]; }
     if (m.alphaMode === "BLEND") mat.transparent = true;
