@@ -155,6 +155,7 @@ window.__CAR_MODEL_REGISTRY__ = {
   lambo: {
     url: "assets/cars/lambo_v12_gt.glb",
     length: 4.9,
+    tint: 0xd8202a,                      // rosso
     stripInteriorMobile: true,
     interiorRe: /(belt|leather|blcarp|dials|xuni|int_|seat)/i,
     rig: rigTyreRotorWheels,
@@ -162,6 +163,7 @@ window.__CAR_MODEL_REGISTRY__ = {
   storm: {
     url: "assets/cars/storm_gt.glb",
     length: 4.6,
+    tint: 0x2f6fd8,                      // electric blue
     stripInteriorMobile: true,
     interiorRe: /^Interior/i,
     rig: rigCornerNameWheels(/^(FL|FR|RR|RL)_/, /^(Caliper_(?:FL|FR|RR|RL))_/),
@@ -169,6 +171,7 @@ window.__CAR_MODEL_REGISTRY__ = {
   s7: {
     url: "assets/cars/s7_twin.glb",
     length: 4.35,
+    tint: 0xe8b421,                      // giallo
     stripInteriorMobile: false,
     rig: rigCornerNameWheels(/^saleen_wi([1-4])/i, null),
   },
@@ -307,6 +310,33 @@ function buildCarTemplate(key) {
         tailNames.push(mesh.name);
       }
     }
+    /* signature paint: the dominant opaque body material takes on the
+     * spec color, so every import is unmistakably its own car even
+     * without textures */
+    if (reg.tint) {
+      const byMat = new Map();
+      for (const p of kept) {
+        if (p.material.transparent || p.material.map) continue;
+        if (!byMat.has(p.materialName)) byMat.set(p.materialName, { tris: 0, mat: p.material });
+        byMat.get(p.materialName).tris +=
+          (p.geometry.index ? p.geometry.index.count : p.geometry.attributes.position.count) / 3;
+      }
+      let topName = null, topTris = 0;
+      for (const [n, v] of byMat) {
+        if (v.tris > topTris) { topTris = v.tris; topName = n; }
+      }
+      if (topName) {
+        const tint = new THREE.Color(reg.tint);
+        for (const p of kept) {
+          if (p.materialName === topName) {
+            p.material.color.lerp(tint, 0.82);
+            p.material.roughness = Math.min(p.material.roughness, 0.42);
+            p.material.metalness = Math.min(p.material.metalness + 0.25, 0.55);
+          }
+        }
+      }
+    }
+
     const wheels = reg.rig(tg);
     return {
       template: tg,

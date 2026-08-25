@@ -337,16 +337,23 @@ function setupTouch() {
 }
 
 window.addEventListener("DOMContentLoaded", () => {
+  const BUILD_ID = "imports-3";
+  console.log("%cVELOCITY RUSH build " + BUILD_ID, "color:#00e5ff;font-weight:bold");
+  try {
+    const f = document.querySelector("#menu-main .menu-footer");
+    if (f) { const s = document.createElement("span"); s.textContent = " · build " + BUILD_ID; s.style.opacity = "0.45"; f.appendChild(s); }
+  } catch (_) {}
+
   updateMenuFooter();
   wireButtons();
   setupTouch();
   game.init($("game-canvas"));
 
-  // stream the imported V12 GT model in the background; when it lands,
-  // reveal its card (if the car menu is open) and refresh the preview
+  // imported car models are embedded; decode them in the background and
+  // refresh the selection UI when each lands
   if (window.__preloadCarModels) window.__preloadCarModels();
   document.addEventListener("carmodels-ready", () => {
     if (!document.getElementById("menu-car").classList.contains("hidden")) buildCarSelect();
-    if (game.selectedCar === "lambo") updateCarPreview();
+    if (["lambo", "storm", "s7"].includes(game.selectedCar)) updateCarPreview();
   });
 });
