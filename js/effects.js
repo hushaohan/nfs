@@ -151,131 +151,151 @@ function buildCarMesh(spec) {
  * Each entry streams its file, normalizes scale/ground, applies
  * signature rigging (wheel groups + tail-light material), then keeps a
  * TEMPLATE group that buildCarMesh clones per instance.                */
+/* =====================================================================
+ * Imported car models — registry of GLB templates.
+ *
+ * Wheel rigging philosophy: the PHYSICS spec already knows exactly
+ * where the four wheels belong (trackWidth/2, wheelbase fractions),
+ * so every rigger snaps wheel groups onto those hub positions instead
+ * of trusting authored offsets. Parts are assigned to corners by name
+ * tokens when present (lf/fl, rf/fr, lr/rl, rr) and by nearest-hub
+ * distance otherwise. Output order is always [FL, FR, RL, RR] so
+ * game.js "first two steer" rule turns only the front axle; rear
+ * groups spin around X but never steer. Calipers ride under the group
+ * root (they steer, they do not spin).
+ * ===================================================================== */
 window.__CAR_MODEL_REGISTRY__ = {
   lambo: {
     url: "assets/cars/lambo_v12_gt.glb",
     length: 4.9,
-    tint: 0xd8202a,                      // rosso
+    tint: 0xd8202a,
     stripInteriorMobile: true,
     interiorRe: /(belt|leather|blcarp|dials|xuni|int_|seat)/i,
-    rig: rigTyreRotorWheels,
+    rig: rigWheelsByMaterial(/tyre/i, /rotor/i),
   },
   storm: {
     url: "assets/cars/storm_gt.glb",
     length: 4.6,
-    tint: 0x2f6fd8,                      // electric blue
+    tint: 0x2f6fd8,
     stripInteriorMobile: true,
     interiorRe: /^Interior/i,
-    rig: rigCornerNameWheels(/^(FL|FR|RR|RL)_/, /^(Caliper_(?:FL|FR|RR|RL))_/),
+    rig: rigWheelsByCornerNames(
+      /^(FL|FR|RR|RL)_/,
+      /Caliper_(FL|FR|RR|RL)_/i,
+      null
+    ),
   },
   s7: {
     url: "assets/cars/s7_twin.glb",
     length: 4.35,
-    tint: 0xe8b421,                      // giallo
+    tint: 0xe8b421,
     stripInteriorMobile: false,
-    rig: rigCornerNameWheels(/^saleen_wi([1-4])/i, null),
+    rig: rigWheelsByCornerNames(
+      /^saleen_(lf|rf|lr|rr)([23])/i,
+      null,
+      /saleen_/i
+    ),
   },
 };
 
-/* --- rigger: tyre/rotor MATERIAL names (V12 GT) --- */
-function rigTyreRotorWheels(group) {
-  const tyres = [], rotors = [], centers = new Map();
-  group.traverse(o => {
-    if (!o.isMesh) return;
-    o.geometry.computeBoundingBox();
+const CORNER_KEYS = ["FL", "FR", "RL", "RR"];
+
+function cornerOfName(name) {
+  const n = (name || "").toLowerCase();
+  if (/(_|-|^)(lf|fl)(_|-|[0-9]|$)/.test(n)) return "FL";
+  if (/(_|-|^)(rf|fr)(_|-|[0-9]|$)/.test(n)) return "FR";
+  if (/(_|-|^)(lr|rl)(_|-|[0-9]|$)/.test(n)) return "RL";
+  if (/(_|-|^)rr(_|-|[0-9]|$)/.test(n)) return "RR";
+  return null;
+}
+
+function nearestHub(hubs, c) {
+  let best = null, bd = Infinity;
+  for (const ck of CORNER_KEYS) {
+    const d = (hubs[ck][0] - c.x) ** 2 + (hubs[ck][2] - c.z) ** 2;
+    if (d < bd) { bd = d; best = ck; }
+  }
+  return best;
+}
+
+/* shared assembler: assign candidate meshes to hubs, snap groups onto
+ * the physics positions, order [FL,FR,RL,RR], calipers non-spinning */
+function assembleWheelGroups(group, hubs, candidates, staticParts) {
+  const perCorner = { FL: [], FR: [], RL: [], RR: [] };
+  const extras = { FL: [], FR: [], RL: [], RR: [] };
+  for (const part of candidates) {
+    part.geometry.computeBoundingBox();
     const c = new THREE.Vector3();
-    o.geometry.boundingBox.getCenter(c);
-    centers.set(o, c);
-    const mn = o.material.name || "";
-    if (/tyre/i.test(mn)) tyres.push(o);
-    else if (/rotor/i.test(mn)) rotors.push(o);
-  });
+    part.geometry.boundingBox.getCenter(c);
+    const corner = cornerOfName(part.name) || nearestHub(hubs, c);
+    if (!corner) continue;
+    part.geometry.translate(-hubs[corner][0], -hubs[corner][1], -hubs[corner][2]);
+    perCorner[corner].push(part);
+  }
+  for (const part of staticParts || []) {
+    part.geometry.computeBoundingBox();
+    const c = new THREE.Vector3();
+    part.geometry.boundingBox.getCenter(c);
+    const corner = nearestHub(hubs, c);
+    if (!corner) continue;
+    part.geometry.translate(-hubs[corner][0], -hubs[corner][1], -hubs[corner][2]);
+    extras[corner].push(part);
+  }
   const wheels = [];
-  const used = new Set();
-  for (const tyre of tyres) {
-    const c = centers.get(tyre);
+  for (const ck of CORNER_KEYS) {
     const wg = new THREE.Group();
-    wg.position.copy(c);
-    tyre.geometry.translate(-c.x, -c.y, -c.z);
+    wg.name = "cwm_wheel_" + ck;
+    wg.position.set(hubs[ck][0], hubs[ck][1], hubs[ck][2]);
     const spin = new THREE.Group();
-    spin.add(tyre);
     wg.add(spin);
-    let best = null, bestD = Infinity;
-    for (const rotor of rotors) {
-      if (used.has(rotor)) continue;
-      const d = centers.get(rotor).distanceTo(c);
-      if (d < bestD) { bestD = d; best = rotor; }
-    }
-    if (best) {
-      used.add(best);
-      best.geometry.translate(-c.x, -c.y, -c.z);
-      spin.add(best);
-    }
-    if (!wg.children[1]) wg.add(new THREE.Group());
+    for (const p of perCorner[ck]) spin.add(p);   // spins with the wheel
+    for (const p of extras[ck]) wg.add(p);        // steers, never spins
+    while (wg.children.length < 2) wg.add(new THREE.Group()); // contract
     wheels.push(wg);
     group.add(wg);
   }
   return wheels;
 }
 
-/* --- rigger: corner NAME patterns (FL/FR/RR/RL or saleen_lf_ …) --- */
-function rigCornerNameWheels(wheelRe, discRe) {
-  return function (group) {
-    const corners = new Map();          // cornerId -> {parts:[], center}
-    const discs = [];
+function nearestHubOldRemoved() {}
+
+/* lambo: tyres spin, rotors are their disc children */
+function rigWheelsByMaterial(tyreRe, rotorRe) {
+  return function (group, hubs) {
+    const candidates = [], statics = [];
     group.traverse(o => {
       if (!o.isMesh) return;
-      const nw = o.name.match(wheelRe);
-      if (nw) {
-        const id = (nw[1] || nw[0]).toUpperCase();
-        if (!corners.has(id)) corners.set(id, []);
-        corners.get(id).push(o);
-        return;
-      }
-      if (discRe) {
-        const nd = o.name.match(discRe);
-        if (nd) { discs.push({ mesh: o, id: nd[1].toUpperCase() }); return; }
-      }
+      o.geometry.computeBoundingBox();
+      const mn = o.material.name || "";
+      if (tyreRe.test(mn)) candidates.push(o);
+      else if (rotorRe.test(mn)) statics.push(o);
     });
-    const wheels = [];
-    for (const [id, parts] of corners) {
-      const box = new THREE.Box3();
-      const tb = new THREE.Box3();
-      const c = new THREE.Vector3();
-      for (const p of parts) {
-        p.geometry.computeBoundingBox();
-        box.union(p.geometry.boundingBox);
-      }
-      box.getCenter(c);
-      const wg = new THREE.Group();
-      wg.name = "cwm_wheel_" + id;
-      wg.position.copy(c);
-      const spin = new THREE.Group();
-      wg.add(spin);
-      for (const p of parts) {
-        p.geometry.translate(-c.x, -c.y, -c.z);
-        spin.add(p);
-      }
-      const cal = discs.filter(d => d.id === id && !d.used);
-      for (const d of cal) {
-        d.used = true;
-        d.mesh.geometry.translate(-c.x, -c.y, -c.z);
-        spin.add(d.mesh);              // calipers ride with the wheel visually
-      }
-      wheels.push(wg);
-      group.add(wg);
-    }
-    // contract safety net
-    let i = 0;
-    for (const wg of wheels) {
-      if (!wg.children[1]) wg.add(new THREE.Group());
-      void i; i++;
-    }
-    return wheels;
+    return assembleWheelGroups(group, hubs, candidates, statics);
   };
 }
 
-/* build one template: normalize, strip, rig, mark tail material */
+/* storm/s7: corner tokens in node names; oversized parts stay body */
+function rigWheelsByCornerNames(wheelRe, caliperRe, familyRe) {
+  return function (group, hubs, spec) {
+    const maxDim = spec.wheelbase * 0.55;
+    const candidates = [], statics = [];
+    group.traverse(o => {
+      if (!o.isMesh) return;
+      o.geometry.computeBoundingBox();
+      const bb = new THREE.Box3().copy(o.geometry.boundingBox);
+      const s = new THREE.Vector3(); bb.getSize(s);
+      if (Math.max(s.x, s.y, s.z) > maxDim) return;
+      const nm = o.name || "";
+      if (familyRe && !familyRe.test(nm)) return;
+      if (wheelRe.test(nm)) candidates.push(o);
+      else if (caliperRe && caliperRe.test(nm)) statics.push(o);
+    });
+    return assembleWheelGroups(group, hubs, candidates, statics);
+  };
+}
+
+/* build one template: normalize, strip interior on mobile, snap wheel
+ * groups onto physics hubs, apply signature tint */
 function buildCarTemplate(key) {
   const reg = window.__CAR_MODEL_REGISTRY__[key];
   const buf = window.__CAR_MODEL_CACHE__[key].buffer;
@@ -310,26 +330,23 @@ function buildCarTemplate(key) {
         tailNames.push(mesh.name);
       }
     }
-    /* signature paint: the dominant opaque body material takes on the
-     * spec color, so every import is unmistakably its own car even
-     * without textures */
+
+    /* signature paint: dominant opaque material takes the identity color */
     if (reg.tint) {
       const byMat = new Map();
       for (const p of kept) {
         if (p.material.transparent || p.material.map) continue;
-        if (!byMat.has(p.materialName)) byMat.set(p.materialName, { tris: 0, mat: p.material });
+        if (!byMat.has(p.materialName)) byMat.set(p.materialName, { tris: 0 });
         byMat.get(p.materialName).tris +=
           (p.geometry.index ? p.geometry.index.count : p.geometry.attributes.position.count) / 3;
       }
       let topName = null, topTris = 0;
-      for (const [n, v] of byMat) {
-        if (v.tris > topTris) { topTris = v.tris; topName = n; }
-      }
+      for (const [n, v] of byMat) if (v.tris > topTris) { topTris = v.tris; topName = n; }
       if (topName) {
-        const tint = new THREE.Color(reg.tint);
+        const tintCol = new THREE.Color(reg.tint);
         for (const p of kept) {
           if (p.materialName === topName) {
-            p.material.color.lerp(tint, 0.82);
+            p.material.color.lerp(tintCol, 0.82);
             p.material.roughness = Math.min(p.material.roughness, 0.42);
             p.material.metalness = Math.min(p.material.metalness + 0.25, 0.55);
           }
@@ -337,59 +354,25 @@ function buildCarTemplate(key) {
       }
     }
 
-    const wheels = reg.rig(tg);
+    /* wheels snap onto the PHYSICS hub positions */
+    const spec = CAR_SPECS[key];
+    const hw = spec.trackWidth / 2;
+    const zf = spec.wheelbase * spec.cgFront;
+    const zr = spec.wheelbase - zf;
+    const hubs = {
+      FL: [ hw, spec.wheelRadius,  zf],
+      FR: [-hw, spec.wheelRadius,  zf],
+      RL: [ hw, spec.wheelRadius, -zr],
+      RR: [-hw, spec.wheelRadius, -zr],
+    };
+    const wheels = reg.rig(tg, hubs, spec);
     return {
       template: tg,
-      wheelNames: wheels.map((w, i) => { w.name = "cwm_wheel_" + i; return w.name; }),
+      wheelNames: wheels.map(w => w.name),
       tailNames,
     };
   });
 }
-
-/* stream every registered model */
-window.__CAR_MODEL_CACHE__ = {};
-const IS_MOBILE_DEVICE = navigator.maxTouchPoints > 0 &&
-  Math.min(screen.width || 9999, screen.height || 9999) < 1024;
-
-/* base64 -> ArrayBuffer (atob on web, Buffer under Node tests) */
-function _b64ToBuffer(b64) {
-  if (typeof atob === "function") {
-    const bin = atob(b64);
-    const u = new Uint8Array(bin.length);
-    for (let i = 0; i < bin.length; i++) u[i] = bin.charCodeAt(i);
-    return u.buffer;
-  }
-  if (typeof Buffer === "function") {
-    const b = Buffer.from(b64, "base64");
-    return b.buffer.slice(b.byteOffset, b.byteOffset + b.byteLength);
-  }
-  throw new Error("no base64 decoder");
-}
-
-/* Models are EMBEDDED as base64 (js/car_models_data.js — generated by
- * tools/embed-models.js) so imports work identically from file:// and
- * https. No fetch anywhere in this path.                            */
-window.__preloadCarModels = function () {
-  const jobs = Object.entries(window.__CAR_MODEL_REGISTRY__).map(([key]) => {
-    window.__CAR_MODEL_CACHE__[key] = { ready: false, failed: false };
-    return Promise.resolve().then(() => {
-      const data = window.__CAR_MODEL_DATA__ && window.__CAR_MODEL_DATA__[key];
-      if (!data) throw new Error("no embedded data");
-      window.__CAR_MODEL_CACHE__[key].buffer = _b64ToBuffer(data);
-      return buildCarTemplate(key);
-    }).then(t => {
-      Object.assign(window.__CAR_MODEL_REGISTRY__[key], t);
-      window.__CAR_MODEL_CACHE__[key].ready = true;
-      try { document.dispatchEvent(new Event("carmodels-ready")); } catch (_) {}
-    }).catch(err => {
-      window.__CAR_MODEL_CACHE__[key].failed = true;
-      console.warn("car model unavailable:", key, err && err.message);
-      try { document.dispatchEvent(new Event("carmodels-ready")); } catch (_) {}
-    });
-  });
-  return Promise.all(jobs);
-};
-
 
 function _box(g, w, h, d, mat, x, y, z, rx) {
   const m = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), mat);
@@ -896,3 +879,48 @@ class ParticleSystem {
     }
   }
 }
+
+/* =====================================================================
+ * Embedded model loading — js/car_models_data.js holds base64 GLBs
+ * (generated by tools/embed-models.js). No fetch: works from file://
+ * and https identically.                                             */
+window.__CAR_MODEL_CACHE__ = {};
+if (typeof IS_MOBILE_DEVICE === "undefined") {
+  var IS_MOBILE_DEVICE = navigator.maxTouchPoints > 0 &&
+    Math.min(screen.width || 9999, screen.height || 9999) < 1024;
+}
+
+function _b64ToBuffer(b64) {
+  if (typeof atob === "function") {
+    const bin = atob(b64);
+    const u = new Uint8Array(bin.length);
+    for (let i = 0; i < bin.length; i++) u[i] = bin.charCodeAt(i);
+    return u.buffer;
+  }
+  if (typeof Buffer === "function") {
+    const b = Buffer.from(b64, "base64");
+    return b.buffer.slice(b.byteOffset, b.byteOffset + b.byteLength);
+  }
+  throw new Error("no base64 decoder");
+}
+
+window.__preloadCarModels = function () {
+  const jobs = Object.entries(window.__CAR_MODEL_REGISTRY__).map(([key]) => {
+    window.__CAR_MODEL_CACHE__[key] = { ready: false, failed: false };
+    return Promise.resolve().then(() => {
+      const data = window.__CAR_MODEL_DATA__ && window.__CAR_MODEL_DATA__[key];
+      if (!data) throw new Error("no embedded data");
+      window.__CAR_MODEL_CACHE__[key].buffer = _b64ToBuffer(data);
+      return buildCarTemplate(key);
+    }).then(t => {
+      Object.assign(window.__CAR_MODEL_REGISTRY__[key], t);
+      window.__CAR_MODEL_CACHE__[key].ready = true;
+      try { document.dispatchEvent(new Event("carmodels-ready")); } catch (_) {}
+    }).catch(err => {
+      window.__CAR_MODEL_CACHE__[key].failed = true;
+      console.warn("car model unavailable:", key, err && err.message);
+      try { document.dispatchEvent(new Event("carmodels-ready")); } catch (_) {}
+    });
+  });
+  return Promise.all(jobs);
+};
