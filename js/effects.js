@@ -828,12 +828,21 @@ function _b64ToBuffer(b64) {
 }
 
 window.__preloadCarModels = function () {
-  const jobs = Object.entries(window.__CAR_MODEL_REGISTRY__).map(([key]) => {
+  const jobs = Object.entries(window.__CAR_MODEL_REGISTRY__).map(([key, reg]) => {
     window.__CAR_MODEL_CACHE__[key] = { ready: false, failed: false };
-    return Promise.resolve().then(() => {
+    return Promise.resolve().then(async () => {
+      // primary: embedded base64 (works from file:// and https alike)
+      let buffer = null;
       const data = window.__CAR_MODEL_DATA__ && window.__CAR_MODEL_DATA__[key];
-      if (!data) throw new Error("no embedded data");
-      window.__CAR_MODEL_CACHE__[key].buffer = _b64ToBuffer(data);
+      if (data) {
+        buffer = _b64ToBuffer(data);
+      } else {
+        // fallback: fetch the raw GLB (older deployments of this game)
+        const r = await fetch(reg.url);
+        if (!r.ok) throw new Error("HTTP " + r.status);
+        buffer = await r.arrayBuffer();
+      }
+      window.__CAR_MODEL_CACHE__[key].buffer = buffer;
       return buildCarTemplate(key);
     }).then(t => {
       Object.assign(window.__CAR_MODEL_REGISTRY__[key], t);
