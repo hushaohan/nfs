@@ -15,7 +15,7 @@ function extrudeProfile(points, depth, bevel, mat) {
   shape.closePath();
   const geo = new THREE.ExtrudeGeometry(shape, {
     depth, bevelEnabled: true, bevelThickness: bevel, bevelSize: bevel * 0.8,
-    bevelSegments: 3, curveSegments: 6,
+    bevelSegments: 4, curveSegments: 10,
   });
   // shape-x → world-z (front), extrusion → world-x, centered
   // (bevel extends the extrusion by bevelThickness on each side, so the
@@ -182,9 +182,33 @@ function _carBodyFalcon(g, spec, ctx) {
 
   // mirrors
   _mirrorPair(g, paintMat, darkMat, 0.86, 0.88, 0.55);
+
+  /* Enzo signature: flying buttresses — twin pillars sweeping from the
+   * roof sides down onto the rear haunches, framing an engine-deck window */
+  for (const sx of [-0.42, 0.42]) {
+    const butt = new THREE.Mesh(new THREE.TorusGeometry(0.78, 0.085, 6, 18, Math.PI * 0.62), paintMat);
+    butt.geometry.rotateY(Math.PI / 2);
+    butt.position.set(sx, 1.02, -1.28);
+    butt.rotation.x = 0.35;              // lean the arc back onto the deck
+    butt.castShadow = true;
+    g.add(butt);
+  }
+  // engine-deck louvers between the buttresses
+  for (let i = 0; i < 4; i++) {
+    const lv = _box(g, 0.66, 0.03, 0.09, darkMat, 0, 0.97 - i * 0.008, -1.30 - i * 0.15);
+    lv.rotation.x = 0.14;
+  }
+  // shield-shaped nose badge panel (the shield silhouette, no marks)
+  {
+    const sh = new THREE.Mesh(new THREE.CylinderGeometry(0.11, 0.13, 0.06, 3), darkMat);
+    sh.rotation.x = Math.PI / 2;
+    sh.rotation.y = Math.PI;
+    sh.position.set(0, 0.47, 2.63);
+    g.add(sh);
+  }
+
   g.userData.tailMat = tailMat;
 }
-
 /* ================= VIPER X — Bugatti-inspired grand tourer ================= */
 function _carBodyViper(g, spec, ctx) {
   const { paintMat, darkMat, glassMat, chromeMat } = ctx;
@@ -196,10 +220,11 @@ function _carBodyViper(g, spec, ctx) {
     [-2.52, 0.60], [-2.44, 0.26],
   ], 1.38, 0.15, paintMat));
 
-  // teardrop canopy
+  // domed bug-like canopy: taller crown, tighter footprint
   g.add(extrudeProfile([
-    [ 0.85, 0.70], [ 0.30, 1.04], [-0.40, 1.06], [-1.35, 0.78],
-  ], 0.94, 0.09, glassMat));
+    [ 0.72, 0.72], [ 0.28, 1.10], [ 0.02, 1.16], [-0.38, 1.12],
+    [-1.30, 0.80],
+  ], 0.92, 0.09, glassMat));
 
   // two-tone: dark cladding band wraps the whole lower body
   for (const sx of [-0.81, 0.81]) _box(g, 0.11, 0.30, 4.5, darkMat, sx, 0.30, -0.02);
@@ -217,6 +242,15 @@ function _carBodyViper(g, spec, ctx) {
     csweep.rotation.x = Math.PI;      // open end toward the rear
     csweep.castShadow = true;
     g.add(csweep);
+    // chrome trim line riding the top edge of the sweep (two-tone split)
+    const trim = new THREE.Mesh(
+      new THREE.TorusGeometry(0.545, 0.016, 6, 20, 2.3),
+      chromeMat
+    );
+    trim.geometry.rotateY(Math.PI / 2);
+    trim.position.set(sx + (sx > 0 ? 0.012 : -0.012), 0.585, -0.30);
+    trim.rotation.x = Math.PI;
+    g.add(trim);
   }
 
   // horseshoe grille: chrome ring over a dark oval
@@ -291,16 +325,27 @@ function _carBodyKitsune(g, spec, ctx) {
     hex.position.set(0, 0.37, 2.40);
     g.add(hex);
   }
-  // Y-hint headlights: angled main slit + small vertical fang
+  // Y-signature headlights: two angled strips meeting at a stem
   const lightMat = new THREE.MeshBasicMaterial({ color: 0xeaf6ff });
   for (const sx of [-0.52, 0.52]) {
-    const hl = new THREE.Mesh(new THREE.BoxGeometry(0.32, 0.045, 0.07), lightMat);
-    hl.position.set(sx, 0.53, 2.26);
-    hl.rotation.y = sx > 0 ? -0.30 : 0.30;
-    g.add(hl);
-    const fang = new THREE.Mesh(new THREE.BoxGeometry(0.045, 0.15, 0.07), lightMat);
-    fang.position.set(sx * 1.16, 0.41, 2.24);
-    g.add(fang);
+    const m = sx > 0 ? -1 : 1;                 // mirror direction per side
+    const armA = new THREE.Mesh(new THREE.BoxGeometry(0.26, 0.04, 0.06), lightMat);
+    armA.position.set(sx - m * 0.10, 0.56, 2.27);
+    armA.rotation.y = m * 0.42;
+    g.add(armA);
+    const armB = new THREE.Mesh(new THREE.BoxGeometry(0.22, 0.04, 0.06), lightMat);
+    armB.position.set(sx + m * 0.09, 0.50, 2.28);
+    armB.rotation.y = m * -0.42;
+    g.add(armB);
+    const stem = new THREE.Mesh(new THREE.BoxGeometry(0.05, 0.16, 0.06), lightMat);
+    stem.position.set(sx, 0.46, 2.29);
+    g.add(stem);
+  }
+  // hood creases radiating from the hex intake to the fender tops
+  for (const sx of [-0.30, 0.30]) {
+    const cr = _box(g, 0.045, 0.04, 1.15, paintMat, sx, 0.565, 1.72);
+    cr.rotation.x = 0.10;
+    cr.rotation.z = sx > 0 ? -0.05 : 0.05;
   }
   // razor shoulder creases along the flanks
   for (const sx of [-0.71, 0.71]) {
@@ -335,9 +380,15 @@ function _carBodyKitsune(g, spec, ctx) {
   // mirrors
   _mirrorPair(g, paintMat, darkMat, 0.86, 0.86, 0.55);
 
-  // thin tail strip + hexagonal twin exhausts
+  // thin tail strip + hexagonal twin exhausts over a hex-mesh panel
   const tailMat = new THREE.MeshBasicMaterial({ color: 0x550000 });
   _box(g, 1.40, 0.06, 0.06, tailMat, 0, 0.80, -2.26);
+  {
+    const meshPanel = new THREE.Mesh(new THREE.CylinderGeometry(0.30, 0.30, 0.05, 6), darkMat);
+    meshPanel.rotation.x = Math.PI / 2;
+    meshPanel.position.set(0, 0.52, -2.18);
+    g.add(meshPanel);
+  }
   for (const sx of [-0.28, 0.28]) {
     const hexx = new THREE.Mesh(new THREE.CylinderGeometry(0.07, 0.07, 0.16, 6), chromeMat);
     hexx.rotation.x = Math.PI / 2;
