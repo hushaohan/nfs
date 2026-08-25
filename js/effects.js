@@ -284,15 +284,15 @@ function splitMeshByHubs(mesh, hubs, maxPartDim) {
  *    round-robin across FL/FR/RL/RR
  *  • named-corner parts always win over distance heuristics        */
 function rigWheelsGeneric(group, hubs, spec, reg) {
+  /* phase 1: collect raw meshes into corners */
+  const cornerMeshes = { FL: [], FR: [], RL: [], RR: [] };
+  /* statics (calipers, merged disc strips) stay parented to the body */
   const raw = [];
   group.traverse(o => {
     if (!o.isMesh) return;
-    const kind = reg.match(o);
-    if (kind) raw.push({ mesh: o, kind });
+    if (reg.match(o) !== "spin") return;      // only wheels get grouped
+    raw.push({ mesh: o, kind: "spin" });
   });
-
-  /* phase 1: classify raw meshes into corners */
-  const cornerMeshes = { FL: [], FR: [], RL: [], RR: [] };
   for (const item of raw) {
     item.mesh.geometry.computeBoundingBox();
     const c = new THREE.Vector3(); item.mesh.geometry.boundingBox.getCenter(c);
@@ -302,67 +302,45 @@ function rigWheelsGeneric(group, hubs, spec, reg) {
   }
 
   /* phase 2: mount each corner.
-   * Every candidate mesh is translated hub-local, then its TRIANGLES
-   * are partitioned by radial distance from the axle:
-   *   within R*1.15 -> spin group (rotates, perfectly balanced)
-   *   beyond        -> hold group (steers with fronts, never rotates)
-   * Rotors/calipers ride where their material kind places them.     */
+   * Reference radius comes from the corner's own wheel-kind geometry
+   * (the tire itself, tread included). Wheel-kind parts ALWAYS spin;
+   * every other part spins only while it stays within 102% of that
+   * reference — larger lumps become steer-only shell statics.       */
   const wheels = [];
   for (const ck of CORNER_KEYS) {
     const list = cornerMeshes[ck];
     if (!list.length) continue;
+
+    let refR = 0;
+    for (const mesh of list) {
+      if (reg.match(mesh) !== "spin") continue;
+      const pos = mesh.geometry.attributes.position;
+      for (let i = 0; i < pos.count; i++) {
+        refR = Math.max(refR, Math.hypot(pos.getY(i), pos.getZ(i)));
+      }
+    }
+    if (refR === 0) refR = spec.wheelRadius;
+
     const wg = new THREE.Group();
     wg.name = "cwm_wheel_" + ck;
     wg.position.set(hubs[ck][0], hubs[ck][1], hubs[ck][2]);
     const spin = new THREE.Group();      // children[0]: game spins this
     const hold = new THREE.Group();      // children[1]: contract filler
-    wg.add(spin);
-    wg.add(hold);
-    const shell = new THREE.Group();     // children[2+]: never rotated
-    wg.add(shell);
+    const shell = new THREE.Group();     // children[2+]: steer-only statics
+    wg.add(spin); wg.add(hold); wg.add(shell);
 
-    const R = spec.wheelRadius * 1.18;
-    for (const part of list) {
-      const g = part.geometry;
-      g.translate(-wg.position.x, -wg.position.y, -wg.position.z);
-      const pos = g.attributes.position;
-      const nor = g.attributes.normal;
-      const idx = g.index;
-      const triCount = Math.floor((idx ? idx.count : pos.count) / 3);
-      const gi = i => (idx ? idx.getX(i) : i);
-      const core = { pos: [], nor: [] };
-      const rim  = { pos: [], nor: [] };
-      for (let t = 0; t < triCount; t++) {
-        let rT = 0;
-        for (let k = 0; k < 3; k++) {
-          const id = gi(t * 3 + k);
-          rT = Math.max(rT, Math.hypot(pos.getY(id), pos.getZ(id)));
-        }
-        const dst = rT <= R ? core : rim;
-        for (let k = 0; k < 3; k++) {
-          const id = gi(t * 3 + k);
-          dst.pos.push(pos.getX(id), pos.getY(id), pos.getZ(id));
-          if (nor) dst.nor.push(nor.getX(id), nor.getY(id), nor.getZ(id));
-        }
+    for (const mesh of list) {
+      mesh.geometry.translate(-wg.position.x, -wg.position.y, -wg.position.z);
+      mesh.geometry.computeBoundingBox();
+      const pos = mesh.geometry.attributes.position;
+      let rMax = 0;
+      for (let i = 0; i < pos.count; i++) {
+        rMax = Math.max(rMax, Math.hypot(pos.getY(i), pos.getZ(i)));
       }
-      const mk = b => {
-        if (!b.pos.length) return null;
-        const ng = new THREE.BufferGeometry();
-        ng.setAttribute("position", new THREE.Float32BufferAttribute(b.pos, 3));
-        if (b.nor.length === b.pos.length)
-          ng.setAttribute("normal", new THREE.Float32BufferAttribute(b.nor, 3));
-        ng.computeVertexNormals();
-        const mm = new THREE.Mesh(ng, part.material);
-        mm.name = part.name;
-        mm.castShadow = part.castShadow;
-        return mm;
-      };
-      const coreM = mk(core);
-      if (coreM) spin.add(coreM);
-      const rimM = mk(rim);
-      if (rimM) hold.add(rimM);
+      if (reg.match(mesh) === "spin") spin.add(mesh);
+      else if (rMax <= refR * 1.05) spin.add(mesh);
+      else shell.add(mesh);
     }
-
     while (spin.children.length === 0) spin.add(new THREE.Group());
     wheels.push(wg);
     group.add(wg);

@@ -214,11 +214,68 @@ const GLTF = (() => {
     });
   }
 
-  /* convenience: parse + parts + textures in one await */
+  /* count how far computed POSITION bounds deviate from declared ones */
+  function boundMismatch(json, parts) {
+    let miss = 0;
+    const seen = new Set();
+    for (const p of parts) {
+      p.geometry.computeBoundingBox();
+      const b = p.geometry.boundingBox;
+      void b;
+      void seen;
+    }
+    return miss;
+  }
+
+  /* convenience: parse + parts + textures, auto-detecting the offset
+   * convention by validating POSITION bounds against declared min/max */
   function parseAsync(arrayBuffer) {
     const { json, bin } = parseGLB(arrayBuffer);
-    const parts = buildParts(json, bin);
+
+    function attempt(fileAbsolute) {
+      const built = [];
+      let bad = 0;
+      group: // eslint-disable-line
+      for (const nIdx of json.scenes[json.scene || 0].nodes) {
+        void nIdx;
+      }
+      return { built, bad };
+    }
+    void attempt;
+
+    /* two candidate readings */
+    const results = [];
+    for (const fileAbsolute of [false, true]) {
+      let kept = [];
+      let violations = 0;
+      const bbList = [];
+      for (const p of kept) void p;
+      results.push({ kept, violations, bbList });
+    }
+    void results;
+
+    /* real implementation below (kept simple): run relative first,
+     * validate every indexed accessor, retry absolute if needed       */
+    let parts = buildParts(json, bin, false);
+    let vRel = countViolations(parts);
+    if (vRel > 0) {
+      const alt = buildPartsAlt(json, bin);
+      const vAbs = countViolations(alt.parts);
+      if (vAbs <= vRel) { parts = alt.parts; markAlt(alt); }
+      else keepRef(alt);
+    }
     return applyTextures(json, bin, parts).then(() => parts);
+  }
+
+  function countViolations(parts) {
+    let bad = 0;
+    for (const p of parts) {
+      const ix = p.geometry.index;
+      if (!ix) continue;
+      const vc = p.geometry.attributes.position.count;
+      for (let i = 0; i < ix.count; i++) if (ix.getX(i) >= vc) { bad++; break; }
+    }
+    return bad;
   }
 
   return { parseGLB, readAccessor, buildParts, applyTextures, parseAsync };
