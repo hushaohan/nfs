@@ -69,6 +69,7 @@ function buildCarMesh(spec) {
       // brake-light update stays a no-op instead of crashing the loop
       g.userData.tailMat = new THREE.MeshBasicMaterial({ color: 0x550000 });
     }
+    g.userData.steerSign = entry.steerSign || 1;
     custom = true;
   }
 
@@ -174,6 +175,18 @@ function buildCarMesh(spec) {
  * order is always [FL, FR, RL, RR]; only the front pair receives
  * steering. Calipers ride under the group root (steer, never spin).
  * ===================================================================== */
+/* =====================================================================
+ * Imported car models — registry of GLB templates.
+ *
+ * Wheel rigging v3:
+ *   • wheel groups keep their AUTHORED axle (Y/Z from model geometry;
+ *     zero wobble), X snaps to physics trackWidth
+ *   • meshes larger than one wheel (exporters merge pairs/axles) are
+ *     SPLIT by per-triangle nearest-hub proximity before mounting
+ *   • corners from name tokens (lf/fl, rf/fr, lr/rl, rr) with
+ *     nearest-hub fallback; output ordered [FL,FR,RL,RR]; only fronts
+ *     receive steering (multiplied by per-car steerSign)
+ * ===================================================================== */
 window.__CAR_MODEL_REGISTRY__ = {
   lambo: {
     url: "assets/cars/lambo_v12_gt.glb",
@@ -181,7 +194,8 @@ window.__CAR_MODEL_REGISTRY__ = {
     tint: 0xd8202a,
     stripInteriorMobile: true,
     interiorRe: /(belt|leather|blcarp|dials|xuni|int_|seat)/i,
-    rig: rigWheelsByMaterial(/tyre/i, /rotor/i),
+    match: o => (/tyre/i.test(o.userData.materialName || o.material.name || "") ? "spin" : /rotor/i.test(o.userData.materialName || o.material.name || "") ? "static" : null),
+    steerSign: -1,
   },
   storm: {
     url: "assets/cars/storm_gt.glb",
@@ -189,22 +203,16 @@ window.__CAR_MODEL_REGISTRY__ = {
     tint: 0x2f6fd8,
     stripInteriorMobile: true,
     interiorRe: /^Interior/i,
-    rig: rigWheelsByCornerNames(
-      /^(FL|FR|RR|RL)_/,
-      /Caliper_(FL|FR|RR|RL)_/i,
-      null
-    ),
+    match: o => (/^(FL|FR|RR|RL)_/.test(o.name) ? "spin" : /Caliper_/i.test(o.name) ? "static" : null),
+    steerSign: -1,
   },
   s7: {
     url: "assets/cars/s7_twin.glb",
     length: 4.35,
     tint: 0xe8b421,
     stripInteriorMobile: false,
-    rig: rigWheelsByCornerNames(
-      /^saleen_(lf|rf|lr|rr)([23])/i,
-      null,
-      /saleen_/i
-    ),
+    match: o => (/^saleen_(lf|rf|lr|rr)[23]/i.test(o.name) ? "spin" : null),
+    steerSign: -1,
   },
 };
 
@@ -219,82 +227,215 @@ function cornerOfName(name) {
   return null;
 }
 
-function nearestHub(hubs, c) {
+function nearestHub(hubs, x, z) {
   let best = null, bd = Infinity;
   for (const ck of CORNER_KEYS) {
-    const d = (hubs[ck][0] - c.x) ** 2 + (hubs[ck][2] - c.z) ** 2;
+    const d = (hubs[ck][0] - x) ** 2 + (hubs[ck][2] - z) ** 2;
     if (d < bd) { bd = d; best = ck; }
   }
   return best;
 }
 
-/* assemble one corner: authored axle (Y/Z) preserved, X snapped,
- * spin parts re-centred on the axle so they cannot wobble */
-function assembleCorner(group, ck, hubX, spinParts, staticParts) {
-  const bb = new THREE.Box3();
-  const tb = new THREE.Box3();
-  for (const p of spinParts) {
-    p.geometry.computeBoundingBox();
-    bb.union(tb.copy(p.geometry.boundingBox));
+/* split an oversized mesh into per-corner triangle soups */
+function splitMeshByHubs(mesh, hubs, maxPartDim) {
+  const g = mesh.geometry;
+  g.computeBoundingBox();
+  const s = new THREE.Vector3(); g.boundingBox.getSize(s);
+  if (Math.max(s.x, s.y, s.z) <= maxPartDim) return null;   // single wheel already
+  const pos = g.attributes.position, nor = g.attributes.normal, idx = g.index;
+  const triCount = Math.floor((idx ? idx.count : pos.count) / 3);
+  const buckets = {};
+  for (const ck of CORNER_KEYS) buckets[ck] = { pos: [], nor: [] };
+  const gi = i => (idx ? idx.getX(i) : i);
+  for (let t = 0; t < triCount; t++) {
+    const ids = [gi(t * 3), gi(t * 3 + 1), gi(t * 3 + 2)];
+    let cx = 0, cy = 0, cz = 0;
+    for (const id of ids) { cx += pos.getX(id); cy += pos.getY(id); cz += pos.getZ(id); }
+    cx /= 3; cy /= 3; cz /= 3;
+    const ck = nearestHub(hubs, cx, cz);
+    const b = buckets[ck];
+    for (const id of ids) {
+      b.pos.push(pos.getX(id), pos.getY(id), pos.getZ(id));
+      if (nor) b.nor.push(nor.getX(id), nor.getY(id), nor.getZ(id));
+    }
   }
-  const c = new THREE.Vector3(); bb.getCenter(c);   // authored axle
-  const wg = new THREE.Group();
-  wg.name = "cwm_wheel_" + ck;
-  wg.position.set(hubX, c.y, c.z);
-  const spin = new THREE.Group();
-  wg.add(spin);
-  for (const p of spinParts) {
-    p.geometry.translate(-wg.position.x, -wg.position.y, -wg.position.z);
-    spin.add(p);                                   // spins, centred
+  const out = [];
+  for (const ck of CORNER_KEYS) {
+    const b = buckets[ck];
+    if (!b.pos.length) continue;
+    const ng = new THREE.BufferGeometry();
+    ng.setAttribute("position", new THREE.Float32BufferAttribute(b.pos, 3));
+    if (b.nor.length === b.pos.length)
+      ng.setAttribute("normal", new THREE.Float32BufferAttribute(b.nor, 3));
+    ng.computeVertexNormals();
+    const nm = new THREE.Mesh(ng, mesh.material);
+    nm.name = mesh.name;
+    nm.castShadow = mesh.castShadow;
+    out.push(nm);
   }
-  for (const p of staticParts || []) {
-    p.geometry.translate(-wg.position.x, -wg.position.y, -wg.position.z);
-    wg.add(p);                                     // steers, never spins
-  }
-  while (wg.children.length < 2) wg.add(new THREE.Group());  // contract
-  group.add(wg);
-  return wg;
+  return out.length ? out : null;
 }
 
-function rigWheelsByMaterial(tyreRe, rotorRe) {
-  return function (group, hubs) {
-    const assign = {}; CORNER_KEYS.forEach(k => assign[k] = { spin: [], static: [] });
-    group.traverse(o => {
-      if (!o.isMesh) return;
-      o.geometry.computeBoundingBox();
-      const c = new THREE.Vector3(); o.geometry.boundingBox.getCenter(c);
-      const mn = o.material.name || "";
-      const ck = nearestHub(hubs, c);
-      if (tyreRe.test(mn)) assign[ck].spin.push(o);
-      else if (rotorRe.test(mn)) assign[ck].static.push(o);
-    });
-    const wheels = [];
-    for (const ck of CORNER_KEYS) wheels.push(assembleCorner(group, ck, hubs[ck][0], assign[ck].spin, assign[ck].static));
-    return wheels;
-  };
-}
+/* generic rigger v2:
+ *  • oversized merged meshes (axle strips) split per-triangle to the
+ *    nearest hub
+ *  • single-wheel-sized meshes WITHOUT a corner token (origin-stacked
+ *    duplicates common in broken conversions) are distributed
+ *    round-robin across FL/FR/RL/RR
+ *  • named-corner parts always win over distance heuristics        */
+function rigWheelsGeneric(group, hubs, spec, reg) {
+  const spinBy = { FL: [], FR: [], RL: [], RR: [] };
+  const staticBy = { FL: [], FR: [], RL: [], RR: [] };
+  const raw = [];
+  group.traverse(o => {
+    if (!o.isMesh) return;
+    const kind = reg.match(o);
+    if (kind) raw.push({ mesh: o, kind });
+  });
 
-function rigWheelsByCornerNames(wheelRe, caliperRe, familyRe) {
-  return function (group, hubs, spec) {
-    const maxDim = spec.wheelbase * 0.55;
-    const assign = {}; CORNER_KEYS.forEach(k => assign[k] = { spin: [], static: [] });
-    group.traverse(o => {
-      if (!o.isMesh) return;
-      o.geometry.computeBoundingBox();
-      const bb = new THREE.Box3().copy(o.geometry.boundingBox);
+  const wheelDia = spec.wheelRadius * 2.2;
+  let rr = 0;                                   // round-robin counter
+  for (const item of raw) {
+    group.remove(item.mesh);
+    const pieces = splitMeshByHubs(item.mesh, hubs, wheelDia * 1.9) || [item.mesh];
+    for (const pc of pieces) {
+      pc.geometry.computeBoundingBox();
+      const bb = pc.geometry.boundingBox;
+      const c = new THREE.Vector3(); bb.getCenter(c);
       const s = new THREE.Vector3(); bb.getSize(s);
-      if (Math.max(s.x, s.y, s.z) > maxDim) return;   // body panels stay put
-      const nm = o.name || "";
-      if (familyRe && !familyRe.test(nm)) return;
-      const ck = cornerOfName(nm);
-      if (!ck) return;
-      if (wheelRe.test(nm)) assign[ck].spin.push(o);
-      else if (caliperRe && caliperRe.test(nm)) assign[ck].static.push(o);
-    });
-    const wheels = [];
-    for (const ck of CORNER_KEYS) wheels.push(assembleCorner(group, ck, hubs[ck][0], assign[ck].spin, assign[ck].static));
-    return wheels;
-  };
+      const maxDim = Math.max(s.x, s.y, s.z);
+
+      let ck = cornerOfName(pc.name);
+      // origin-stacked identical wheels (broken conversions): deal out
+      // round-robin; otherwise snap by nearest physics hub
+      if (!ck && maxDim <= wheelDia) {
+        ck = CORNER_KEYS[rr % 4]; rr++;
+      } else if (!ck) {
+        ck = nearestHub(hubs, c.x, c.z);
+      }
+      (item.kind === "spin" ? spinBy : staticBy)[ck].push(pc);
+    }
+  }
+
+  const wheels = [];
+  for (const ck of CORNER_KEYS) {
+    const wg = new THREE.Group();
+    wg.name = "cwm_wheel_" + ck;
+    wg.position.set(hubs[ck][0], hubs[ck][1], hubs[ck][2]);
+    const spin = new THREE.Group();
+    wg.add(spin);
+    for (const p of spinBy[ck]) {
+      p.geometry.translate(-wg.position.x, -wg.position.y, -wg.position.z);
+      // only near-circular parts spin: true per-vertex orbit radius
+      // around the axle (local X through origin) must stay within the
+      // tire radius — anything lumpier would visibly wobble
+      p.geometry.computeBoundingBox();
+      const bb = new THREE.Box3().copy(p.geometry.boundingBox);
+      const s = new THREE.Vector3(); bb.getSize(s);
+      let rMax = 0;
+      if (!p.geometry.index || p.geometry.index.count <= 3) {
+        rMax = Math.max(s.x, s.y, s.z);            // tiny part: keep with wheel
+      } else {
+        const pos = p.geometry.attributes.position;
+        for (let i = 0; i < pos.count; i++) {
+          rMax = Math.max(rMax, Math.hypot(pos.getY(i), pos.getZ(i)));
+        }
+      }
+      if (rMax <= spec.wheelRadius * 1.18) spin.add(p);
+      else wg.add(p);                              // steers, never spins
+    }
+    for (const p of staticBy[ck]) {
+      p.geometry.translate(-wg.position.x, -wg.position.y, -wg.position.z);
+      wg.add(p);                       // calipers steer, never spin
+    }
+    while (spin.children.length === 0) spin.add(new THREE.Group());
+    while (wg.children.length < 2) wg.add(new THREE.Group());
+    wheels.push(wg);
+    group.add(wg);
+  }
+  return wheels;
+}
+
+/* build one template: normalize ALL parts with one shared transform
+ * (global bbox center + length scale), strip interior on mobile, snap
+ * wheel groups onto physics hubs, apply signature tint */
+function buildCarTemplate(key) {
+  const reg = window.__CAR_MODEL_REGISTRY__[key];
+  const buf = window.__CAR_MODEL_CACHE__[key].buffer;
+  return GLTF.parseAsync(buf).then(parts => {
+    let kept = parts;
+    if (IS_MOBILE_DEVICE && reg.stripInteriorMobile && reg.interiorRe) {
+      kept = parts.filter(p => !reg.interiorRe.test(p.name) && !reg.interiorRe.test(p.materialName));
+    }
+    /* GLOBAL bounding box — never per-part, or the model's internal
+     * layout collapses */
+    const gb = new THREE.Box3();
+    const tb = new THREE.Box3();
+    for (const p of kept) {
+      p.geometry.computeBoundingBox();
+      gb.union(tb.copy(p.geometry.boundingBox));
+    }
+    const gSize = new THREE.Vector3(); gb.getSize(gSize);
+    const s = (reg.length || 4.9) / gSize.z;
+    const gc = new THREE.Vector3(); gb.getCenter(gc);
+
+    const tg = new THREE.Group();
+    const tailNames = [];
+    let ti = 0;
+    for (const p of kept) {
+      p.geometry.translate(-gc.x, -gb.min.y + 0.02, -gc.z);   // same vector for all
+      p.geometry.scale(s, s, s);
+      const mesh = new THREE.Mesh(p.geometry, p.material);
+      mesh.name = p.name;
+      mesh.userData.materialName = p.materialName;
+      mesh.castShadow = !/glass/i.test(p.materialName);
+      tg.add(mesh);
+      if (/(_RR_|spec_RR)/i.test(p.materialName)) {
+        mesh.name = "cwm_tail_" + ti++;
+        p.material.__isTail = true;
+        tailNames.push(mesh.name);
+      }
+    }
+
+    if (reg.tint) {
+      const byMat = new Map();
+      for (const p of kept) {
+        if (p.material.transparent || p.material.map) continue;
+        if (!byMat.has(p.materialName)) byMat.set(p.materialName, { tris: 0 });
+        byMat.get(p.materialName).tris +=
+          (p.geometry.index ? p.geometry.index.count : p.geometry.attributes.position.count) / 3;
+      }
+      let topName = null, topTris = 0;
+      for (const [n, v] of byMat) if (v.tris > topTris) { topTris = v.tris; topName = n; }
+      if (topName) {
+        const tintCol = new THREE.Color(reg.tint);
+        for (const p of kept) {
+          if (p.materialName === topName) {
+            p.material.color.lerp(tintCol, 0.82);
+            p.material.roughness = Math.min(p.material.roughness, 0.42);
+            p.material.metalness = Math.min(p.material.metalness + 0.25, 0.55);
+          }
+        }
+      }
+    }
+
+    const spec = CAR_SPECS[key];
+    const hw = spec.trackWidth / 2;
+    const zf = spec.wheelbase * spec.cgFront;
+    const zr = spec.wheelbase - zf;
+    const hubs = {
+      FL: [ hw, spec.wheelRadius,  zf],
+      FR: [-hw, spec.wheelRadius,  zf],
+      RL: [ hw, spec.wheelRadius, -zr],
+      RR: [-hw, spec.wheelRadius, -zr],
+    };
+    const wheels = rigWheelsGeneric(tg, hubs, spec, reg);
+    return {
+      template: tg,
+      wheelNames: wheels.map(w => w.name),
+      tailNames,
+    };
+  });
 }
 
 function _box(g, w, h, d, mat, x, y, z, rx) {
@@ -841,6 +982,7 @@ function buildCarTemplate(key) {
       p.geometry.scale(s, s, s);
       const mesh = new THREE.Mesh(p.geometry, p.material);
       mesh.name = p.name;                    // riggers match on node names
+      mesh.userData.materialName = p.materialName;  // and on material names
       mesh.castShadow = !/glass/i.test(p.materialName);
       tg.add(mesh);
       if (/(_RR_|spec_RR)/i.test(p.materialName)) {
@@ -884,7 +1026,7 @@ function buildCarTemplate(key) {
       RL: [ hw, spec.wheelRadius, -zr],
       RR: [-hw, spec.wheelRadius, -zr],
     };
-    const wheels = reg.rig(tg, hubs, spec);
+    const wheels = rigWheelsGeneric(tg, hubs, spec, reg);
     return {
       template: tg,
       wheelNames: wheels.map(w => w.name),

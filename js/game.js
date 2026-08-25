@@ -587,7 +587,7 @@ class Game {
       for (let i = 0; i < 4; i++) {
         wheels[i].children[0].rotation.x = car.wheelSpin;
         wheels[i].children[1].rotation.x = car.wheelSpin;
-        if (i < 2) wheels[i].rotation.y = car.steer * 0.85;
+        if (i < 2) wheels[i].rotation.y = car.steer * 0.85 * (r.mesh.userData.steerSign || 1);
       }
 
       // brake lights
