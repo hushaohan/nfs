@@ -294,6 +294,41 @@ function setupTouch() {
     $("tc-inv").classList.toggle("on", game.tiltInvert === -1);
   });
 
+  /* ---- fullscreen toggle ---- */
+  const fsElement = document.documentElement;
+  const canFs = !!(fsElement.requestFullscreen || fsElement.webkitRequestFullscreen);
+  const isFs = () => !!(document.fullscreenElement || document.webkitFullscreenElement);
+
+  if (!canFs) {
+    // iPhone Safari exposes no element-fullscreen API: hide the dead chip.
+    // (There, use "Add to Home Screen" — the meta tags make it launch
+    // edge-to-edge instead.)
+    $("tc-full").classList.add("hidden");
+  }
+
+  $("tc-full").addEventListener("click", async () => {
+    game.audio.init();
+    game.audio.click();
+    try {
+      if (!isFs()) {
+        const req = fsElement.requestFullscreen || fsElement.webkitRequestFullscreen;
+        if (req) {
+          await req.call(fsElement);
+          // best-effort landscape lock once fullscreen is granted
+          if (screen.orientation && screen.orientation.lock) {
+            screen.orientation.lock("landscape").catch(() => {});
+          }
+        }
+      } else {
+        const exit = document.exitFullscreen || document.webkitExitFullscreen;
+        if (exit) await exit.call(document);
+      }
+    } catch (_) { /* some browsers reject without full user gesture */ }
+    $("tc-full").textContent = isFs() ? "✕" : "⛶";
+  });
+  document.addEventListener("fullscreenchange", () => { $("tc-full").textContent = isFs() ? "✕" : "⛶"; });
+  document.addEventListener("webkitfullscreenchange", () => { $("tc-full").textContent = isFs() ? "✕" : "⛶"; });
+
   // block iOS pinch-zoom during play
   document.addEventListener("gesturestart", (e) => e.preventDefault());
 }
