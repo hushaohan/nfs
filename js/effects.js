@@ -35,6 +35,45 @@ function extrudeProfile(points, depth, bevel, mat) {
  *   hatch — KITSUNE RS: cab-forward drift hatch, flares, roof fins
  * Shared contract: userData.wheels (4 groups; children[0]=spinner,
  * children[1]=brake disc), userData.tailMat, userData.spec.          */
+/* one procedural wheel (tire torus + rim barrel + spokes + brake disc)
+ * returned as a contract group: children[0]=spin, children[1]=disc    */
+function buildProcWheel(spec, x, z, front) {
+  const r = spec.wheelRadius;
+  const g = new THREE.Group();
+  g.position.set(x, r, z);
+  const tireMat = new THREE.MeshStandardMaterial({ color: 0x101010, roughness: 0.92 });
+  const rimMat  = new THREE.MeshStandardMaterial({ color: 0xd6dae2, roughness: 0.2, metalness: 0.9 });
+  const discMat = new THREE.MeshStandardMaterial({ color: 0x7a7f88, roughness: 0.35, metalness: 0.85 });
+
+  const tireGeo = new THREE.TorusGeometry(r - 0.085, 0.085, 10, 20);
+  tireGeo.rotateY(Math.PI / 2);
+  const barrelGeo = new THREE.CylinderGeometry(r * 0.60, r * 0.60, 0.20, 14, 1, true);
+  barrelGeo.rotateZ(Math.PI / 2);
+  const spokeGeo = new THREE.BoxGeometry(0.055, r * 0.58, 0.10);
+  const hubGeo = new THREE.CylinderGeometry(0.075, 0.075, 0.24, 8);
+  hubGeo.rotateZ(Math.PI / 2);
+  const discGeo = new THREE.CylinderGeometry(r * 0.42, r * 0.42, 0.035, 18);
+  discGeo.rotateZ(Math.PI / 2);
+
+  const spin = new THREE.Group();
+  const tire = new THREE.Mesh(tireGeo, tireMat);
+  tire.castShadow = true;
+  spin.add(tire);
+  spin.add(new THREE.Mesh(barrelGeo, rimMat));
+  for (let s = 0; s < 6; s++) {
+    const spoke = new THREE.Mesh(spokeGeo, rimMat);
+    const a = (s / 6) * Math.PI * 2;
+    spoke.position.set(0, Math.cos(a) * r * 0.30, Math.sin(a) * r * 0.30);
+    spoke.rotation.x = a;
+    spin.add(spoke);
+  }
+  spin.add(new THREE.Mesh(hubGeo, rimMat));
+  g.add(spin);                                   // children[0]
+  const disc = new THREE.Mesh(discGeo, discMat);
+  g.add(disc);                                   // children[1]
+  return g;
+}
+
 function buildCarMesh(spec) {
   const g = new THREE.Group();
   const paintMat = new THREE.MeshStandardMaterial({ color: new THREE.Color(spec.color), roughness: 0.22, metalness: 0.7 });
@@ -123,16 +162,6 @@ function buildCarMesh(spec) {
     const rimMat  = new THREE.MeshStandardMaterial({ color: 0xd6dae2, roughness: 0.2, metalness: 0.9 });
     const discMat = new THREE.MeshStandardMaterial({ color: 0x7a7f88, roughness: 0.35, metalness: 0.85 });
 
-    const tireGeo = new THREE.TorusGeometry(r - 0.085, 0.085, 10, 20);
-    tireGeo.rotateY(Math.PI / 2);
-    const barrelGeo = new THREE.CylinderGeometry(r * 0.60, r * 0.60, 0.20, 14, 1, true);
-    barrelGeo.rotateZ(Math.PI / 2);
-    const spokeGeo = new THREE.BoxGeometry(0.055, r * 0.58, 0.10);
-    const hubGeo = new THREE.CylinderGeometry(0.075, 0.075, 0.24, 8);
-    hubGeo.rotateZ(Math.PI / 2);
-    const discGeo = new THREE.CylinderGeometry(r * 0.42, r * 0.42, 0.035, 18);
-    discGeo.rotateZ(Math.PI / 2);
-
     const wheels = [];
     const positions = [
       [-spec.trackWidth / 2, r,  cgToFront],
@@ -141,23 +170,7 @@ function buildCarMesh(spec) {
       [ spec.trackWidth / 2, r, -cgToRear],
     ];
     for (const p of positions) {
-      const wg = new THREE.Group();
-      const spin = new THREE.Group();
-      const tire = new THREE.Mesh(tireGeo, tireMat);
-      tire.castShadow = true;
-      spin.add(tire);
-      spin.add(new THREE.Mesh(barrelGeo, rimMat));
-      for (let sIdx = 0; sIdx < 6; sIdx++) {
-        const spoke = new THREE.Mesh(spokeGeo, rimMat);
-        const a = (sIdx / 6) * Math.PI * 2;
-        spoke.position.set(0, Math.cos(a) * r * 0.30, Math.sin(a) * r * 0.30);
-        spoke.rotation.x = a;
-        spin.add(spoke);
-      }
-      spin.add(new THREE.Mesh(hubGeo, rimMat));
-      const disc = new THREE.Mesh(discGeo, discMat);
-      wg.add(spin, disc);
-      wg.position.set(p[0], p[1], p[2]);
+      const wg = buildProcWheel(spec, p[0], p[2]);
       g.add(wg);
       wheels.push(wg);
     }
@@ -248,6 +261,14 @@ window.__CAR_MODEL_REGISTRY__ = {
     stripInteriorMobile: false,
     dedupeStacked: true,               // file ships stacked body shells
     match: o => (/^Object_5$/.test(o.name) ? "static" : null),
+  },
+  streetgt: {
+    url: "assets/cars/street_gt.glb",
+    length: 5.0,
+    tint: 0xc4552a,                    // burnt orange over flat spec-gloss
+    stripInteriorMobile: true,
+    interiorRe: /interior|dash|seat/i,
+    // single merged body mesh, no separable wheels -> procedural overlay
   },
 };
 
@@ -998,18 +1019,27 @@ function buildCarTemplate(key) {
   });
 }
 
-function _b64ToBuffer(b64) {
+async function _decodeModel(data) {
+  let bytes;
   if (typeof atob === "function") {
-    const bin = atob(b64);
+    const bin = atob(data.b64);
     const u = new Uint8Array(bin.length);
     for (let i = 0; i < bin.length; i++) u[i] = bin.charCodeAt(i);
-    return u.buffer;
+    bytes = u;
+  } else if (typeof Buffer === "function") {
+    const b = Buffer.from(data.b64, "base64");
+    bytes = b;
+  } else {
+    throw new Error("no base64 decoder");
   }
-  if (typeof Buffer === "function") {
-    const b = Buffer.from(b64, "base64");
-    return b.buffer.slice(b.byteOffset, b.byteOffset + b.byteLength);
+  if (data.fmt === "gz") {
+    if (typeof DecompressionStream === "undefined")
+      throw new Error("DecompressionStream unsupported in this browser");
+    const ds = new DecompressionStream("gzip");
+    const stream = new Blob([bytes]).stream().pipeThrough(ds);
+    return await new Response(stream).arrayBuffer();
   }
-  throw new Error("no base64 decoder");
+  return bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength);
 }
 
 window.__preloadCarModels = function () {
@@ -1020,51 +1050,7 @@ window.__preloadCarModels = function () {
       let buffer = null;
       const data = window.__CAR_MODEL_DATA__ && window.__CAR_MODEL_DATA__[key];
       if (data) {
-        buffer = _b64ToBuffer(data);
-      } else {
-        // fallback: fetch the raw GLB (older deployments of this game)
-        const r = await fetch(reg.url);
-        if (!r.ok) throw new Error("HTTP " + r.status);
-        buffer = await r.arrayBuffer();
-      }
-      window.__CAR_MODEL_CACHE__[key].buffer = buffer;
-      return buildCarTemplate(key);
-    }).then(t => {
-      Object.assign(window.__CAR_MODEL_REGISTRY__[key], t);
-      window.__CAR_MODEL_CACHE__[key].ready = true;
-      try { document.dispatchEvent(new Event("carmodels-ready")); } catch (_) {}
-    }).catch(err => {
-      window.__CAR_MODEL_CACHE__[key].failed = true;
-      console.warn("car model unavailable:", key, err && (err.stack || err.message));
-      try { document.dispatchEvent(new Event("carmodels-ready")); } catch (_) {}
-    });
-  });
-  return Promise.all(jobs);
-};
-
-function _b64ToBuffer(b64) {
-  if (typeof atob === "function") {
-    const bin = atob(b64);
-    const u = new Uint8Array(bin.length);
-    for (let i = 0; i < bin.length; i++) u[i] = bin.charCodeAt(i);
-    return u.buffer;
-  }
-  if (typeof Buffer === "function") {
-    const b = Buffer.from(b64, "base64");
-    return b.buffer.slice(b.byteOffset, b.byteOffset + b.byteLength);
-  }
-  throw new Error("no base64 decoder");
-}
-
-window.__preloadCarModels = function () {
-  const jobs = Object.entries(window.__CAR_MODEL_REGISTRY__).map(([key, reg]) => {
-    window.__CAR_MODEL_CACHE__[key] = { ready: false, failed: false };
-    return Promise.resolve().then(async () => {
-      // primary: embedded base64 (works from file:// and https alike)
-      let buffer = null;
-      const data = window.__CAR_MODEL_DATA__ && window.__CAR_MODEL_DATA__[key];
-      if (data) {
-        buffer = _b64ToBuffer(data);
+        buffer = await _decodeModel(data);
       } else {
         // fallback: fetch the raw GLB (older deployments of this game)
         const r = await fetch(reg.url);

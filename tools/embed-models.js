@@ -9,6 +9,7 @@
  */
 "use strict";
 const fs = require("fs");
+const zlib = require("zlib");
 const path = require("path");
 
 const FILES = {
@@ -17,6 +18,7 @@ const FILES = {
   s7: "assets/cars/s7_twin.glb",
   gtsport: "assets/cars/gt_sport.glb",
   concept_s: "assets/cars/concept_s.glb",
+  streetgt: "assets/cars/street_gt.glb",
 };
 const ORDER = Object.keys(FILES);
 
@@ -31,9 +33,10 @@ window.__CAR_MODEL_DATA__ = {
 for (const key of ORDER) {
   const file = FILES[key];
   if (!fs.existsSync(file)) { console.error("missing:", file); process.exit(1); }
-  const b64 = fs.readFileSync(file).toString("base64");
-  out += `  ${key}: "${b64}",\n`;
-  console.log(key.padEnd(10), file, "->", (b64.length / 1048576).toFixed(1), "MB base64");
+  const gz = zlib.gzipSync(fs.readFileSync(file), { level: 9 });
+  const b64 = gz.toString("base64");
+  out += `  ${key}: { fmt: "gz", b64: "${b64}" },\n`;
+  console.log(key.padEnd(10), file, "->", (b64.length / 1048576).toFixed(1), "MB gz+b64");
 }
 
 out += "};\n";
