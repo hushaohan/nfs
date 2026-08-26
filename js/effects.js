@@ -265,7 +265,6 @@ window.__CAR_MODEL_REGISTRY__ = {
   streetgt: {
     url: "assets/cars/street_gt.glb",
     length: 5.0,
-    preRotZ: -90,
     tint: 0xc4552a,                    // burnt orange over flat spec-gloss
     stripInteriorMobile: true,
     interiorRe: /interior|dash|seat/i,

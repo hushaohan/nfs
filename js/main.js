@@ -337,7 +337,7 @@ function setupTouch() {
 }
 
 window.addEventListener("DOMContentLoaded", () => {
-  const BUILD_ID = "imports-7";
+  const BUILD_ID = "imports-8";
   console.log("%cVELOCITY RUSH build " + BUILD_ID, "color:#00e5ff;font-weight:bold");
   try {
     const f = document.querySelector("#menu-main .menu-footer");
