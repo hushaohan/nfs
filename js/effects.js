@@ -954,6 +954,19 @@ function buildCarTemplate(key) {
       p.geometry.computeBoundingBox();
       bbox.union(tmp.copy(p.geometry.boundingBox));
     }
+    // axis-align: if the body length runs along X (some exporters),
+    // rotate so it maps onto Z before any scaling
+    {
+      const pre = new THREE.Vector3(); bbox.getSize(pre);
+      if (pre.x > pre.z * 1.15) {
+        for (const p of kept) p.geometry.rotateY(Math.PI / 2);
+        bbox.makeEmpty();
+        for (const p of kept) {
+          p.geometry.computeBoundingBox();
+          bbox.union(tmp.copy(p.geometry.boundingBox));
+        }
+      }
+    }
     const size = new THREE.Vector3(); bbox.getSize(size);
     const s = (reg.length || 4.9) / size.z;
     const center = new THREE.Vector3(); bbox.getCenter(center);
@@ -976,12 +989,13 @@ function buildCarTemplate(key) {
       }
     }
 
-    /* signature paint: dominant opaque material takes the identity color */
+    /* signature paint: the dominant body material (textured or not)
+     * takes on the registry tint — mapped materials keep their detail
+     * because the map multiplies over the shifted color               */
     if (reg.tint) {
       const byMat = new Map();
       for (const p of kept) {
-        if (p.material.transparent || p.material.map) continue;
-        if (!byMat.has(p.materialName)) byMat.set(p.materialName, { tris: 0 });
+        if (!byMat.has(p.materialName)) byMat.set(p.materialName, { tris: 0, mat: p.material });
         byMat.get(p.materialName).tris +=
           (p.geometry.index ? p.geometry.index.count : p.geometry.attributes.position.count) / 3;
       }
@@ -991,7 +1005,8 @@ function buildCarTemplate(key) {
         const tintCol = new THREE.Color(reg.tint);
         for (const p of kept) {
           if (p.materialName === topName) {
-            p.material.color.lerp(tintCol, 0.82);
+            const strength = p.material.map ? 0.55 : 0.82;
+            p.material.color.lerp(tintCol, strength);
             p.material.roughness = Math.min(p.material.roughness, 0.42);
             p.material.metalness = Math.min(p.material.metalness + 0.25, 0.55);
           }
