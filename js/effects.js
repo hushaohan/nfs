@@ -948,6 +948,17 @@ function buildCarTemplate(key) {
     if (IS_MOBILE_DEVICE && reg.stripInteriorMobile && reg.interiorRe) {
       kept = parts.filter(p => !reg.interiorRe.test(p.name) && !reg.interiorRe.test(p.materialName));
     }
+    /* optional per-model pre-rotation (deg) for misoriented exports */
+    if (reg.preRotX || reg.preRotY || reg.preRotZ) {
+      const eul = new THREE.Euler(
+        (reg.preRotX || 0) * Math.PI / 180,
+        (reg.preRotY || 0) * Math.PI / 180,
+        (reg.preRotZ || 0) * Math.PI / 180
+      );
+      const mtx = new THREE.Matrix4().makeRotationFromEuler(eul);
+      for (const p of kept) p.geometry.applyMatrix4(mtx);
+    }
+
     const bbox = new THREE.Box3();
     const tmp = new THREE.Box3();
     for (const p of kept) {

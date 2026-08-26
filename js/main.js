@@ -365,6 +365,8 @@ window.addEventListener("DOMContentLoaded", () => {
     const qs = new URLSearchParams(location.search);
     const qCar = qs.get("car");
     if (qCar && CAR_SPECS[qCar]) game.selectedCar = qCar;
+    if (qs.get("roll") && window.__CAR_MODEL_REGISTRY__[qCar])
+      window.__CAR_MODEL_REGISTRY__[qCar].preRotZ = parseFloat(qs.get("roll"));
     preloadDone.then(() => {
       if (qs.get("screen") === "car") {
         buildCarSelect();
