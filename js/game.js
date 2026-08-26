@@ -583,8 +583,8 @@ class Game {
       r.mesh.rotation.z = car.accelY * 0.006;
 
       // wheels
-      const wheels = r.mesh.userData.wheels;
-      for (let i = 0; i < 4; i++) {
+      const wheels = r.mesh.userData.wheels || [];
+      for (let i = 0; i < 4 && i < wheels.length; i++) {
         wheels[i].children[0].rotation.x = car.wheelSpin;
         wheels[i].children[1].rotation.x = car.wheelSpin;
         if (i < 2) wheels[i].rotation.y = car.steer * 0.85 * (r.mesh.userData.steerSign || 1);

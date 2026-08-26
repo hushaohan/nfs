@@ -81,9 +81,9 @@ for (const f of ["js/textures.js", "js/gltf.js", "js/car_models_data.js",
   for (const key of Object.keys(CAR_SPECS)) {
     const m = buildCarMesh(CAR_SPECS[key]);
     const w = m.userData.wheels;
-    // imported cars may ship without separable wheel meshes
-    const ok = (w.length === 0) || (w.length === 4 &&
-      w.every(g => g.children[0] && g.children[1]));
+    // every car must expose the full 4-hub contract (imports get
+    // invisible filler hubs when their wheels are baked into the body)
+    const ok = w.length === 4 && w.every(g => g.children[0] && g.children[1]);
     if (!ok) throw new Error(key + ": wheel contract violated");
   }
   console.log("all", Object.keys(CAR_SPECS).length, "cars build ✓");
