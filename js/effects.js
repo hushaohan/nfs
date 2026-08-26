@@ -214,6 +214,21 @@ window.__CAR_MODEL_REGISTRY__ = {
     match: o => (/^saleen_(lf|rf|lr|rr)[23]/i.test(o.name) ? "spin" : null),
     steerSign: -1,
   },
+  gtsport: {
+    url: "assets/cars/gt_sport.glb",
+    length: 4.6,
+    tint: 0x3a7bd5,                    // electric blue accent (own textures lead)
+    stripInteriorMobile: true,
+    interiorRe: /^Interior|^Traslucent/i,
+    // wheels baked into Exterior mesh: no rig, mounts as body statics
+  },
+  concept_s: {
+    url: "assets/cars/concept_s.glb",
+    length: 4.35,
+    stripInteriorMobile: false,
+    dedupeStacked: true,               // file ships stacked body shells
+    match: o => (/^Object_5$/.test(o.name) ? "static" : null),
+  },
 };
 
 const CORNER_KEYS = ["FL", "FR", "RL", "RR"];
@@ -290,7 +305,7 @@ function rigWheelsGeneric(group, hubs, spec, reg) {
   const raw = [];
   group.traverse(o => {
     if (!o.isMesh) return;
-    if (reg.match(o) !== "spin") return;      // only wheels get grouped
+    if (!reg.match || reg.match(o) !== "spin") return;      // only wheels get grouped
     raw.push({ mesh: o, kind: "spin" });
   });
   for (const item of raw) {
@@ -861,6 +876,29 @@ if (typeof IS_MOBILE_DEVICE === "undefined") {
 
 /* build one template: normalize, strip interior on mobile, snap wheel
  * groups onto physics hubs, apply signature tint */
+/* drop meshes whose bounding box is nearly contained in a bigger one
+ * and that carry fewer triangles (stacked LOD shells / duplicate
+ * exports ship this way). Greedy: biggest first stays.               */
+function dedupeStackedShells(kept) {
+  const infos = kept.map(p => {
+    p.geometry.computeBoundingBox();
+    const s = new THREE.Vector3(); p.geometry.boundingBox.getSize(s);
+    const c = new THREE.Vector3(); p.geometry.boundingBox.getCenter(c);
+    const t = (p.geometry.index ? p.geometry.index.count : p.geometry.attributes.position.count) / 3;
+    return { p, s, c, t };
+  });
+  infos.sort((a, b) => b.t - a.t);
+  const survivors = [];
+  for (const info of infos) {
+    const contained = survivors.some(sv => {
+      const dx = Math.abs(sv.c.x - info.c.x), dy = Math.abs(sv.c.y - info.c.y), dz = Math.abs(sv.c.z - info.c.z);
+      return dx < sv.s.x * 0.55 && dy < sv.s.y * 0.55 && dz < sv.s.z * 0.55;
+    });
+    if (!contained) survivors.push(info);
+  }
+  return survivors.map(v => v.p);
+}
+
 function buildCarTemplate(key) {
   const reg = window.__CAR_MODEL_REGISTRY__[key];
   const buf = window.__CAR_MODEL_CACHE__[key].buffer;
@@ -939,6 +977,50 @@ function buildCarTemplate(key) {
     };
   });
 }
+
+function _b64ToBuffer(b64) {
+  if (typeof atob === "function") {
+    const bin = atob(b64);
+    const u = new Uint8Array(bin.length);
+    for (let i = 0; i < bin.length; i++) u[i] = bin.charCodeAt(i);
+    return u.buffer;
+  }
+  if (typeof Buffer === "function") {
+    const b = Buffer.from(b64, "base64");
+    return b.buffer.slice(b.byteOffset, b.byteOffset + b.byteLength);
+  }
+  throw new Error("no base64 decoder");
+}
+
+window.__preloadCarModels = function () {
+  const jobs = Object.entries(window.__CAR_MODEL_REGISTRY__).map(([key, reg]) => {
+    window.__CAR_MODEL_CACHE__[key] = { ready: false, failed: false };
+    return Promise.resolve().then(async () => {
+      // primary: embedded base64 (works from file:// and https alike)
+      let buffer = null;
+      const data = window.__CAR_MODEL_DATA__ && window.__CAR_MODEL_DATA__[key];
+      if (data) {
+        buffer = _b64ToBuffer(data);
+      } else {
+        // fallback: fetch the raw GLB (older deployments of this game)
+        const r = await fetch(reg.url);
+        if (!r.ok) throw new Error("HTTP " + r.status);
+        buffer = await r.arrayBuffer();
+      }
+      window.__CAR_MODEL_CACHE__[key].buffer = buffer;
+      return buildCarTemplate(key);
+    }).then(t => {
+      Object.assign(window.__CAR_MODEL_REGISTRY__[key], t);
+      window.__CAR_MODEL_CACHE__[key].ready = true;
+      try { document.dispatchEvent(new Event("carmodels-ready")); } catch (_) {}
+    }).catch(err => {
+      window.__CAR_MODEL_CACHE__[key].failed = true;
+      console.warn("car model unavailable:", key, err && (err.stack || err.message));
+      try { document.dispatchEvent(new Event("carmodels-ready")); } catch (_) {}
+    });
+  });
+  return Promise.all(jobs);
+};
 
 function _b64ToBuffer(b64) {
   if (typeof atob === "function") {

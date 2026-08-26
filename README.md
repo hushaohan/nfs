@@ -82,6 +82,63 @@ fetch, no CORS, no extra requests. Their select cards show a LOADING
 badge while decoding and fall back gracefully if unavailable. On phones,
 hidden interior meshes are skipped where applicable.
 
+### Adding a new downloaded car model
+
+Any **core-profile glTF 2.0 binary (`.glb`)** can be added. Requirements
+and quirks the pipeline handles or needs from you:
+
+| Requirement | Notes |
+|---|---|
+| Format | `.glb` (binary glTF). `.gltf`+bin, `.fbx`, `.obj`, `.blend`, `.stl` must be converted first (Blender: File → Export → glTF 2.0) |
+| Materials | metallic-roughness PBR. Specular-glossiness exports render flat grey |
+| Textures | embedded textures work; missing ones render with the luminance floor (dark grey) |
+| Wheels | separate wheel meshes strongly preferred — named per corner (`FL/FR/RL/RR`, `wheel_fl`, …) enables spin + steer; wheels baked into body render static |
+| Size | ≤ ~25 MB per file and ≤ ~150 k triangles keeps phones happy |
+
+**Steps** (using `mycar.glb` as the example, registry key `mycar`):
+
+1. **Copy the file** into `assets/cars/mycar.glb`.
+
+2. **Embed it**: open `tools/embed-models.js`, add
+   `mycar: "assets/cars/mycar.glb"` to the FILES map, then run
+
+   ```bash
+   node tools/embed-models.js        # regenerates js/car_models_data.js
+   ```
+
+3. **Register it** in `window.__CAR_MODEL_REGISTRY__` (js/effects.js):
+
+   ```js
+   mycar: {
+     url: "assets/cars/mycar.glb",
+     length: 4.5,                     // target length in meters
+     tint: 0xcc3333,                  // optional identity paint
+     stripInteriorMobile: true,       // skip interior meshes on phones
+     interiorRe: /seat|dash/i,        // what counts as interior
+     match: o => {                    // classify each mesh:
+       if (/tyre|wheel/i.test(o.name || o.material.name)) return "spin";
+       return null;                   // null = stays on the car body
+     },
+     steerSign: -1,                   // only if steering renders mirrored
+   },
+   ```
+
+4. **Add physics** in `CAR_SPECS` (js/physics.js): copy an existing entry,
+   change `name`, `cls`, `design: "mycar"` (must equal the registry key),
+   and tune mass/power/stats.
+
+That's it — the select card appears automatically once the model decodes.
+The rigger snaps each matched mesh onto the physics hub for its corner
+(authored axle line preserved, X snapped to trackWidth), partitions
+triangles radially (tire spins balanced, lumpy bits stay static), and
+de-duplicates stacked shells when `dedupeStacked: true` is set.
+
+**Known converter quirks handled automatically:** FetchCFD files write
+bufferView offsets relative to the file start instead of the BIN chunk
+(auto-detected), mirrored transforms get their winding reversed, black
+texture-multiplier albedo is lifted to visible gunmetal, and degenerate
+zero-triangle placeholder nodes are skipped.
+
 ### Credits
 - **Lamborghini V12 GT** by Revolz (Sketchfab), CC-BY 4.0 — converted via FetchCFD.
 - **STORM GT** and **S7 TWIN** models from Sketchfab by their respective authors (CC-BY).

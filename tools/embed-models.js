@@ -2,26 +2,23 @@
  * original GLB files. Base64-embeds each model so the game works from
  * file:// AND https identically (fetch can't read file:// URLs).
  *
- *   node tools/embed-models.js <glb…>      # in CAR_MODEL_REGISTRY order
+ *   node tools/embed-models.js
  *
- * Expected inputs (matching registry keys):
- *   lambo  storm  s7
+ * Registry keys ↔ files (edit ORDER/FILES when adding new cars):
+ *   lambo  storm  s7  gtsport  concept_s
  */
 "use strict";
 const fs = require("fs");
 const path = require("path");
 
-const ORDER = ["lambo", "storm", "s7"];
 const FILES = {
   lambo: "assets/cars/lambo_v12_gt.glb",
   storm: "assets/cars/storm_gt.glb",
   s7: "assets/cars/s7_twin.glb",
+  gtsport: "assets/cars/gt_sport.glb",
+  concept_s: "assets/cars/concept_s.glb",
 };
-
-const args = process.argv.slice(2);
-if (args.length) { // explicit mapping by order
-  ORDER.forEach((k, i) => { if (args[i]) FILES[k] = args[i]; });
-}
+const ORDER = Object.keys(FILES);
 
 let out = `/* =====================================================================
  * car_models_data.js — GENERATED FILE (tools/embed-models.js).
@@ -34,10 +31,9 @@ window.__CAR_MODEL_DATA__ = {
 for (const key of ORDER) {
   const file = FILES[key];
   if (!fs.existsSync(file)) { console.error("missing:", file); process.exit(1); }
-  const buf = fs.readFileSync(file);
-  const b64 = buf.toString("base64");
+  const b64 = fs.readFileSync(file).toString("base64");
   out += `  ${key}: "${b64}",\n`;
-  console.log(key.padEnd(6), file, "->", (b64.length / 1048576).toFixed(1), "MB base64");
+  console.log(key.padEnd(10), file, "->", (b64.length / 1048576).toFixed(1), "MB base64");
 }
 
 out += "};\n";
