@@ -311,16 +311,6 @@ function rigWheelsGeneric(group, hubs, spec, reg) {
     const list = cornerMeshes[ck];
     if (!list.length) continue;
 
-    let refR = 0;
-    for (const mesh of list) {
-      if (reg.match(mesh) !== "spin") continue;
-      const pos = mesh.geometry.attributes.position;
-      for (let i = 0; i < pos.count; i++) {
-        refR = Math.max(refR, Math.hypot(pos.getY(i), pos.getZ(i)));
-      }
-    }
-    if (refR === 0) refR = spec.wheelRadius;
-
     const wg = new THREE.Group();
     wg.name = "cwm_wheel_" + ck;
     wg.position.set(hubs[ck][0], hubs[ck][1], hubs[ck][2]);
@@ -331,6 +321,11 @@ function rigWheelsGeneric(group, hubs, spec, reg) {
 
     for (const mesh of list) {
       mesh.geometry.translate(-wg.position.x, -wg.position.y, -wg.position.z);
+      // re-center radially on the spin axis: authored wheel meshes sit a
+      // few cm off their true axle in Y/Z, which reads as wobble
+      mesh.geometry.computeBoundingBox();
+      const bc = new THREE.Vector3(); mesh.geometry.boundingBox.getCenter(bc);
+      mesh.geometry.translate(0, -bc.y, -bc.z);
       mesh.geometry.computeBoundingBox();
       const pos = mesh.geometry.attributes.position;
       let rMax = 0;
@@ -338,7 +333,7 @@ function rigWheelsGeneric(group, hubs, spec, reg) {
         rMax = Math.max(rMax, Math.hypot(pos.getY(i), pos.getZ(i)));
       }
       if (reg.match(mesh) === "spin") spin.add(mesh);
-      else if (rMax <= refR * 1.05) spin.add(mesh);
+      else if (rMax <= spec.wheelRadius * 1.18) spin.add(mesh);
       else shell.add(mesh);
     }
     while (spin.children.length === 0) spin.add(new THREE.Group());
