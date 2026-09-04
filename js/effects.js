@@ -257,15 +257,6 @@ window.__CAR_MODEL_REGISTRY__ = {
     dedupeStacked: true,               // file ships stacked body shells
     match: o => (/^Object_5$/.test(o.name) ? "static" : null),
   },
-  streetgt: {
-    url: "assets/cars/street_gt.glb",
-    length: 5.0,
-    preRotX: 90, preRotY: 180,
-    tint: 0xc4552a,                    // burnt orange over flat spec-gloss
-    stripInteriorMobile: true,
-    interiorRe: /interior|dash|seat/i,
-    // single merged body mesh, no separable wheels -> procedural overlay
-  },
 };
 
 const CORNER_KEYS = ["FL", "FR", "RL", "RR"];

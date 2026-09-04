@@ -528,23 +528,6 @@ const CAR_SPECS = {
     nitroBoost: 1.50, nitroDrain: 0.28, nitroRegen: 0.06,
     stats: { speed: 0.74, accel: 0.86, grip: 0.90, nitro: 0.70 },
   },
-  streetgt: {
-    name: "STREET GT", cls: "TUNER · RWD", design: "streetgt",
-    color: 0xc4552a, accent: 0x101014,
-    mass: 1700, inertia: 2700,
-    wheelbase: 2.85, cgFront: 0.49, cgHeight: 0.52, trackWidth: 1.86, wheelRadius: 0.36,
-    maxSteer: 0.62, steerRate: 3.3, steerSpeedFall: 0.016,
-    tire: { B: 11.8, C: 1.42, D: 1.64, E: -0.34, loadSens: -0.13 },
-    engine: { maxTorque: 680, redline: 7600, idle: 900, shiftUp: 0.95, shiftDown: 0.42 },
-    gears: [3.3, 2.1, 1.5, 1.15, 0.92, 0.76], finalDrive: 3.40,
-    driveBias: 0.0, drivetrainEff: 0.86,
-    brakeForce: 22000, brakeBias: 0.62, reverseForce: 7800,
-    dragCoef: 0.60, downforce: 2.6, rollResist: 0.012,
-    handbrakeGrip: 0.35, handbrakeForce: 9200,
-    yawDamping: 300, yawFriction: 0.55,
-    nitroBoost: 1.55, nitroDrain: 0.30, nitroRegen: 0.05,
-    stats: { speed: 0.90, accel: 0.83, grip: 0.76, nitro: 0.80 },
-  },
 };
 
 if (typeof module !== "undefined" && module.exports) {
