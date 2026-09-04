@@ -117,15 +117,10 @@ function buildCarMesh(spec) {
     const pZr = -spec.wheelbase * (1 - spec.cgFront);
     while (g.userData.wheels.length < 4) {
       const i = g.userData.wheels.length;
-      const wg = new THREE.Group();
+      const wx = (i % 2 === 0 ? 1 : -1) * spec.trackWidth / 2;
+      const wz = i < 2 ? pZf : pZr;
+      const wg = buildProcWheel(spec, wx, wz);
       wg.name = "cwm_fill_" + i;
-      wg.position.set(
-        (i % 2 === 0 ? 1 : -1) * spec.trackWidth / 2,
-        spec.wheelRadius,
-        i < 2 ? pZf : pZr
-      );
-      const sGroup = new THREE.Group(); wg.add(sGroup);   // children[0]
-      wg.add(new THREE.Group());                          // children[1]
       g.add(wg);
       g.userData.wheels.push(wg);
     }
