@@ -982,7 +982,8 @@ function buildCarTemplate(key) {
     const tailNames = [];
     let ti = 0;
     for (const p of kept) {
-      p.geometry.translate(-center.x, -bbox.min.y + 0.02, -center.z);
+      const groundOffset = (reg.rig || reg.match) ? 0.02 : CAR_SPECS[key].wheelRadius * 0.45;
+      p.geometry.translate(-center.x, -bbox.min.y + groundOffset, -center.z);
       p.geometry.scale(s, s, s);
       const mesh = new THREE.Mesh(p.geometry, p.material);
       mesh.name = p.name;                    // riggers match on node names
